@@ -1,79 +1,41 @@
 import { useState } from "react";
-import { MessageSquare, Send, Search } from "lucide-react";
-
-interface Message {
-  id: string;
-  text: string;
-  sender: "me" | "them";
-  time: string;
-}
-
-interface Conversation {
-  id: string;
-  name: string;
-  company: string;
-  lastMessage: string;
-  time: string;
-  unread: number;
-  avatar: string;
-  messages: Message[];
-}
-
-const conversations: Conversation[] = [
-  {
-    id: "1", name: "eshheet raka", company: "BuildTech Industries", lastMessage: "Can we discuss the supply chain proposal?", time: "2m ago", unread: 2, avatar: "ER",
-    messages: [
-      { id: "1", text: "Hi! We saw your profile on UNIFY and were impressed by your capabilities.", sender: "them", time: "10:30 AM" },
-      { id: "2", text: "Thank you, eshheet! We'd love to collaborate. What's the project scope?", sender: "me", time: "10:32 AM" },
-      { id: "3", text: "We need IT infrastructure support for our new construction project. Budget is around ₹50L.", sender: "them", time: "10:35 AM" },
-      { id: "4", text: "Can we discuss the supply chain proposal?", sender: "them", time: "10:40 AM" },
-    ],
-  },
-  {
-    id: "2", name: "gandharva ugale", company: "AgriTech Corp", lastMessage: "The collaboration agreement looks good!", time: "1h ago", unread: 0, avatar: "GU",
-    messages: [
-      { id: "1", text: "Hi, I wanted to follow up on the agricultural digitization project.", sender: "me", time: "9:00 AM" },
-      { id: "2", text: "Sure! We've reviewed your proposal and it looks promising.", sender: "them", time: "9:15 AM" },
-      { id: "3", text: "The collaboration agreement looks good!", sender: "them", time: "9:20 AM" },
-    ],
-  },
-  {
-    id: "3", name: "farhaan khan", company: "SolarPlus Ltd", lastMessage: "When can we schedule a call?", time: "3h ago", unread: 1, avatar: "FK",
-    messages: [
-      { id: "1", text: "We're interested in your IoT solutions for our solar farms.", sender: "them", time: "Yesterday" },
-      { id: "2", text: "That sounds great! We have extensive experience in that area.", sender: "me", time: "Yesterday" },
-      { id: "3", text: "When can we schedule a call?", sender: "them", time: "Today" },
-    ],
-  },
-  {
-    id: "4", name: "mihika chandra", company: "HealthBridge AI", lastMessage: "Looking forward to the consortium meeting.", time: "1d ago", unread: 0, avatar: "MC",
-    messages: [
-      { id: "1", text: "Welcome to the telemedicine consortium!", sender: "them", time: "2 days ago" },
-      { id: "2", text: "Thanks for having us. We're excited to contribute.", sender: "me", time: "2 days ago" },
-      { id: "3", text: "Looking forward to the consortium meeting.", sender: "them", time: "Yesterday" },
-    ],
-  },
-];
+import { Send, Search } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchConversations, sendMessage, dummyConversations } from "@/lib/db";
+import type { Conversation, ChatMessage } from "@/lib/db";
 
 const Messages = () => {
-  const [activeConv, setActiveConv] = useState<string>(conversations[0].id);
+  const queryClient = useQueryClient();
+  const [activeConvId, setActiveConvId] = useState<string>("1");
   const [newMessage, setNewMessage] = useState("");
-  const [convs, setConvs] = useState(conversations);
   const [searchQuery, setSearchQuery] = useState("");
+  const [localMessages, setLocalMessages] = useState<Record<string, ChatMessage[]>>({});
 
-  const active = convs.find((c) => c.id === activeConv)!;
-  const filtered = convs.filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.company.toLowerCase().includes(searchQuery.toLowerCase()));
+  const { data: conversations = dummyConversations } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: fetchConversations,
+  });
 
-  const handleSend = () => {
-    if (!newMessage.trim()) return;
-    const updated = convs.map((c) =>
-      c.id === activeConv
-        ? { ...c, messages: [...c.messages, { id: Date.now().toString(), text: newMessage, sender: "me" as const, time: "Just now" }], lastMessage: newMessage, time: "Just now" }
-        : c
-    );
-    setConvs(updated);
+  const filtered = conversations.filter(
+    (c) =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.company.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const active = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
+  const extra = localMessages[activeConvId] ?? [];
+  const allMessages: ChatMessage[] = active ? [...active.messages, ...extra] : [];
+
+  const handleSend = async () => {
+    if (!newMessage.trim() || !active) return;
+    const text = newMessage;
     setNewMessage("");
+    const msg = await sendMessage(active.id, text);
+    setLocalMessages((prev) => ({ ...prev, [active.id]: [...(prev[active.id] ?? []), msg] }));
+    queryClient.invalidateQueries({ queryKey: ["conversations"] });
   };
+
+  if (!active) return null;
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in h-[calc(100vh-7rem)]">
@@ -96,8 +58,8 @@ const Messages = () => {
             {filtered.map((conv) => (
               <button
                 key={conv.id}
-                onClick={() => setActiveConv(conv.id)}
-                className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors border-b border-border/50 ${activeConv === conv.id ? "bg-muted/70" : ""}`}
+                onClick={() => setActiveConvId(conv.id)}
+                className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors border-b border-border/50 ${activeConvId === conv.id ? "bg-muted/70" : ""}`}
               >
                 <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
                   <span className="text-[11px] font-bold text-primary-foreground">{conv.avatar}</span>
@@ -131,7 +93,7 @@ const Messages = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {active.messages.map((msg) => (
+            {allMessages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.sender === "me" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[70%] px-3.5 py-2.5 rounded-xl text-sm ${msg.sender === "me" ? "gradient-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
                   <p>{msg.text}</p>

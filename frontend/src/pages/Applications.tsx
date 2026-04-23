@@ -1,8 +1,9 @@
-import { applications } from "@/data/dummy";
+import { useQuery } from "@tanstack/react-query";
+import { fetchApplications } from "@/lib/db";
 import { Clock, CheckCircle, XCircle, Eye, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-const statusConfig: Record<string, { icon: any; color: string; bg: string }> = {
+const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
   pending: { icon: Clock, color: "text-warning", bg: "bg-warning/10" },
   reviewed: { icon: Eye, color: "text-info", bg: "bg-info/10" },
   shortlisted: { icon: AlertCircle, color: "text-primary", bg: "bg-primary/10" },
@@ -12,6 +13,11 @@ const statusConfig: Record<string, { icon: any; color: string; bg: string }> = {
 
 const Applications = () => {
   const navigate = useNavigate();
+
+  const { data: applications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
@@ -57,6 +63,9 @@ const Applications = () => {
               })}
             </tbody>
           </table>
+          {applications.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground text-sm">No applications yet. Apply for opportunities to see them here.</div>
+          )}
         </div>
       </div>
     </div>

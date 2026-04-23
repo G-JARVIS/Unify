@@ -1,4 +1,6 @@
-import { opportunities, sectorData, trendData } from "@/data/dummy";
+import { useQuery } from "@tanstack/react-query";
+import { fetchOpportunities } from "@/lib/db";
+import { sectorData, trendData } from "@/data/dummy";
 import { OpportunityCard } from "@/components/shared/OpportunityCard";
 import { Search, TrendingUp } from "lucide-react";
 import { useState } from "react";
@@ -10,6 +12,11 @@ const Opportunities = () => {
   const initialQuery = searchParams.get("q") || "";
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [selectedType, setSelectedType] = useState<string>("all");
+
+  const { data: opportunities = [] } = useQuery({
+    queryKey: ["opportunities"],
+    queryFn: fetchOpportunities,
+  });
 
   const filtered = opportunities.filter((o) => {
     const matchesSearch = o.title.toLowerCase().includes(searchQuery.toLowerCase()) || o.sector.toLowerCase().includes(searchQuery.toLowerCase());
@@ -52,7 +59,6 @@ const Opportunities = () => {
         </div>
       </div>
 
-      {/* Sector & Demand Trends */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="glass-card rounded-xl p-5">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" />Sector Growth (%)</h3>

@@ -1,16 +1,28 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { opportunities } from "@/data/dummy";
 import { MapPin, Calendar, Building2, ArrowLeft, Bookmark, BookmarkCheck, Share2, FileText, Clock } from "lucide-react";
 import { MatchScoreBar } from "@/components/shared/MatchScoreBar";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchOpportunity, toggleSaveOpportunity, createApplication } from "@/lib/db";
 
 const OpportunityDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const opportunity = opportunities.find((o) => o.id === id);
-  const [saved, setSaved] = useState(opportunity?.saved ?? false);
+  const queryClient = useQueryClient();
+
+  const { data: opportunity, isLoading } = useQuery({
+    queryKey: ["opportunity", id],
+    queryFn: () => fetchOpportunity(id!),
+    enabled: !!id,
+  });
+
+  const [saved, setSaved] = useState(false);
   const [applied, setApplied] = useState(false);
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading...</div>;
+  }
 
   if (!opportunity) {
     return (
@@ -23,17 +35,27 @@ const OpportunityDetail = () => {
     );
   }
 
-  const handleApply = () => {
+  const handleApply = async () => {
     setApplied(true);
+    await createApplication({
+      opportunityTitle: opportunity.title,
+      status: "pending",
+      appliedDate: new Date().toISOString().split("T")[0],
+      sector: opportunity.sector,
+      budget: opportunity.budgetRange,
+    });
+    queryClient.invalidateQueries({ queryKey: ["applications"] });
     toast.success("Application submitted!", {
       description: `You applied for "${opportunity.title}". Track it in My Applications.`,
     });
   };
 
-  const handleSave = () => {
-    setSaved(!saved);
-    toast(saved ? "Removed from saved" : "Opportunity saved!", {
-      description: saved ? "Removed from your bookmarks." : "You can find it in your saved opportunities.",
+  const handleSave = async () => {
+    const next = !saved;
+    setSaved(next);
+    await toggleSaveOpportunity(opportunity.id, next);
+    toast(next ? "Opportunity saved!" : "Removed from saved", {
+      description: next ? "You can find it in your saved opportunities." : "Removed from your bookmarks.",
     });
   };
 

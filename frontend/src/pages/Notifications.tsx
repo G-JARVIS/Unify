@@ -2,25 +2,38 @@ import { Bell, CheckCheck } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-
-const initialNotifications = [
-  { id: "1", title: "Application shortlisted", desc: "Your application for Smart City Infrastructure has been shortlisted.", time: "2 hours ago", read: false, link: "/applications" },
-  { id: "2", title: "New supply chain request", desc: "BuildTech Industries posted a new procurement requirement.", time: "5 hours ago", read: false, link: "/supply-chain" },
-  { id: "3", title: "AI Match Found", desc: "A new 90% match opportunity in FinTech sector is available.", time: "1 day ago", read: true, link: "/ai-recommendations" },
-  { id: "4", title: "Collaboration invite", desc: "InnovateTech Solutions invited you to join a consortium.", time: "2 days ago", read: true, link: "/collaborations" },
-];
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/db";
+import type { Notification } from "@/lib/db";
 
 const Notifications = () => {
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const queryClient = useQueryClient();
+  const [localRead, setLocalRead] = useState<Record<string, boolean>>({});
 
-  const markAllRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: fetchNotifications,
+  });
+
+  const displayed: Notification[] = notifications.map((n) => ({
+    ...n,
+    read: localRead[n.id] !== undefined ? localRead[n.id] : n.read,
+  }));
+
+  const markAllRead = async () => {
+    const updates: Record<string, boolean> = {};
+    displayed.forEach((n) => { updates[n.id] = true; });
+    setLocalRead((prev) => ({ ...prev, ...updates }));
+    await markAllNotificationsRead();
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
     toast.success("All notifications marked as read");
   };
 
-  const handleClick = (n: typeof initialNotifications[0]) => {
-    setNotifications(notifications.map((notif) => notif.id === n.id ? { ...notif, read: true } : notif));
+  const handleClick = async (n: Notification) => {
+    setLocalRead((prev) => ({ ...prev, [n.id]: true }));
+    await markNotificationRead(n.id);
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
     navigate(n.link);
   };
 
@@ -33,7 +46,7 @@ const Notifications = () => {
         </button>
       </div>
       <div className="space-y-2">
-        {notifications.map((n) => (
+        {displayed.map((n) => (
           <div
             key={n.id}
             onClick={() => handleClick(n)}

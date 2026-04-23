@@ -1,15 +1,15 @@
-import { collaborations as initialCollaborations } from "@/data/dummy";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchCollaborations, createCollaboration } from "@/lib/db";
 import { Users, Handshake, Plus, X, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const Collaborations = () => {
-  const [collaborationsList, setCollaborationsList] = useState(initialCollaborations);
-  const [showForm, setShowForm] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
-    companyName: "C-78 PVT LTD",
     projectTitle: "",
     sector: "",
     budget: "",
@@ -19,61 +19,43 @@ const Collaborations = () => {
     skillInput: "",
   });
 
+  const { data: collaborationsList = [] } = useQuery({
+    queryKey: ["collaborations"],
+    queryFn: fetchCollaborations,
+  });
+
   const handleSendRequest = (name: string) => {
     toast.success("Collaboration request sent!", { description: `Your request to ${name} has been submitted.` });
   };
 
-  const handleViewDetails = (id: string) => {
-    navigate(`/collaborations/${id}`);
-  };
-
   const handleAddSkill = () => {
     if (formData.skillInput.trim()) {
-      setFormData({
-        ...formData,
-        requiredSkills: [...formData.requiredSkills, formData.skillInput],
-        skillInput: "",
-      });
+      setFormData({ ...formData, requiredSkills: [...formData.requiredSkills, formData.skillInput.trim()], skillInput: "" });
     }
   };
 
   const handleRemoveSkill = (skill: string) => {
-    setFormData({
-      ...formData,
-      requiredSkills: formData.requiredSkills.filter(s => s !== skill),
-    });
+    setFormData({ ...formData, requiredSkills: formData.requiredSkills.filter((s) => s !== skill) });
   };
 
-  const handlePostCollaboration = () => {
+  const handlePostCollaboration = async () => {
     if (!formData.projectTitle || !formData.sector || !formData.budget || formData.requiredSkills.length === 0) {
       toast.error("Please fill in all fields");
       return;
     }
-
-    const newCollaboration = {
-      id: String(collaborationsList.length + 1),
-      companyName: formData.companyName,
+    await createCollaboration({
+      companyName: "C-78 PVT LTD",
       projectTitle: formData.projectTitle,
       requiredSkills: formData.requiredSkills,
       budget: formData.budget,
       sector: formData.sector,
       partnersNeeded: formData.partnersNeeded,
       description: formData.description,
-    };
-
-    setCollaborationsList([newCollaboration, ...collaborationsList]);
+    });
+    queryClient.invalidateQueries({ queryKey: ["collaborations"] });
     toast.success("Collaboration posted!", { description: "Your collaboration request is now visible to other companies." });
     setShowForm(false);
-    setFormData({
-      companyName: "C-78 PVT LTD",
-      projectTitle: "",
-      sector: "",
-      budget: "",
-      partnersNeeded: 1,
-      requiredSkills: [],
-      description: "",
-      skillInput: "",
-    });
+    setFormData({ projectTitle: "", sector: "", budget: "", partnersNeeded: 1, requiredSkills: [], description: "", skillInput: "" });
   };
 
   return (
@@ -94,9 +76,7 @@ const Collaborations = () => {
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Post a Collaboration</h2>
-            <button onClick={() => setShowForm(false)} className="hover:opacity-70">
-              <X className="h-5 w-5" />
-            </button>
+            <button onClick={() => setShowForm(false)} className="hover:opacity-70"><X className="h-5 w-5" /></button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -126,16 +106,14 @@ const Collaborations = () => {
           <div>
             <label className="text-xs text-muted-foreground">Required Skills</label>
             <div className="flex gap-2 mt-1">
-              <input type="text" value={formData.skillInput} onChange={(e) => setFormData({ ...formData, skillInput: e.target.value })} onKeyPress={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddSkill(); } }} placeholder="Add a skill" className="flex-1 h-9 px-3 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+              <input type="text" value={formData.skillInput} onChange={(e) => setFormData({ ...formData, skillInput: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddSkill(); } }} placeholder="Add a skill" className="flex-1 h-9 px-3 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               <button onClick={handleAddSkill} className="h-9 px-3 rounded-lg bg-primary/20 text-primary text-xs font-medium hover:bg-primary/30">Add</button>
             </div>
             <div className="flex flex-wrap gap-2 mt-2">
               {formData.requiredSkills.map((skill) => (
                 <span key={skill} className="text-xs font-medium px-3 py-1.5 rounded-full bg-primary/10 text-primary flex items-center gap-2">
                   {skill}
-                  <button onClick={() => handleRemoveSkill(skill)} className="hover:opacity-70">
-                    <X className="h-3 w-3" />
-                  </button>
+                  <button onClick={() => handleRemoveSkill(skill)} className="hover:opacity-70"><X className="h-3 w-3" /></button>
                 </span>
               ))}
             </div>
@@ -173,7 +151,7 @@ const Collaborations = () => {
             </div>
             <div className="flex gap-2 mt-4">
               <button onClick={() => handleSendRequest(collab.companyName)} className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">Send Request</button>
-              <button onClick={() => handleViewDetails(collab.id)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
+              <button onClick={() => navigate(`/collaborations/${collab.id}`)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
                 <ExternalLink className="h-3 w-3" /> View Details
               </button>
             </div>

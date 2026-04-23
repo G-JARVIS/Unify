@@ -1,45 +1,45 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchGovContract } from "@/lib/db";
+import { fetchGovTender } from "@/lib/db";
 import { MapPin, Calendar, Building2, ArrowLeft, Share2, IndianRupee, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
-const GovernmentContractDetail = () => {
+const GovernmentTenderDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const { data: contract, isLoading } = useQuery({
-    queryKey: ["gov-contract", id],
-    queryFn: () => fetchGovContract(id!),
+  const { data: tender, isLoading } = useQuery({
+    queryKey: ["gov-tender", id],
+    queryFn: () => fetchGovTender(id!),
     enabled: !!id,
   });
 
   if (isLoading) return <div className="flex items-center justify-center py-20"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
-  if (!contract) {
+  if (!tender) {
     return (
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-        <p className="text-lg font-semibold">Contract not found</p>
-        <button onClick={() => navigate("/government-contracts")} className="mt-4 text-sm text-primary hover:underline">
-          ← Back to Government Contracts
+        <p className="text-lg font-semibold">Tender not found</p>
+        <button onClick={() => navigate("/government-tenders")} className="mt-4 text-sm text-primary hover:underline">
+          ← Back to Government Tenders
         </button>
       </div>
     );
   }
 
   const handleApply = () => {
-    if (contract.applyLink) {
-      window.open(contract.applyLink, "_blank", "noopener,noreferrer");
+    if (tender.applyLink) {
+      window.open(tender.applyLink, "_blank", "noopener,noreferrer");
     } else {
       toast.success("Application submitted!", {
-        description: `You applied for "${contract.title}". Track it in My Applications.`,
+        description: `You applied for "${tender.title}". Track it in My Applications.`,
       });
     }
   };
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
-    toast.success("Link copied!", { description: "Share this contract with others." });
+    toast.success("Link copied!", { description: "Share this tender with others." });
   };
 
   return (
@@ -51,10 +51,10 @@ const GovernmentContractDetail = () => {
       <div className="glass-card rounded-xl p-6">
         <div className="flex items-start justify-between mb-4">
           <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-primary/10 text-primary">
-            {contract.sector}
+            {tender.sector}
           </span>
           <div className="flex gap-2">
-            {contract.verified && (
+            {tender.verified && (
               <span className="flex items-center gap-1 text-[11px] font-medium text-success px-2.5 py-1 rounded-full bg-success/10">
                 <ShieldCheck className="h-3.5 w-3.5" /> Verified
               </span>
@@ -65,29 +65,29 @@ const GovernmentContractDetail = () => {
           </div>
         </div>
 
-        <h1 className="text-3xl font-bold">{contract.title}</h1>
+        <h1 className="text-3xl font-bold">{tender.title}</h1>
         <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-          <Building2 className="h-3.5 w-3.5" /> {contract.department}
+          <Building2 className="h-3.5 w-3.5" /> {tender.department}
         </p>
 
         <div className="flex flex-wrap items-center gap-4 mt-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{contract.location}</span>
-          <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{contract.deadline}</span>
-          <span className="flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" />{contract.budget}</span>
+          <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{tender.location}</span>
+          <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{tender.deadline}</span>
+          <span className="flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" />{tender.budget}</span>
         </div>
 
-        <p className="text-sm text-muted-foreground mt-4">{contract.description}</p>
+        <p className="text-sm text-muted-foreground mt-4">{tender.description}</p>
       </div>
 
       <div className="glass-card rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4">Project Overview</h2>
+        <h2 className="text-lg font-semibold mb-4">Tender Overview</h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-          {contract.fullDescription || contract.description}
+          {tender.fullDescription || tender.description}
         </p>
 
-        {contract.applyLink && (
+        {tender.applyLink && (
           <p className="text-xs text-muted-foreground mb-4">
-            Clicking Apply will redirect you to: <span className="text-primary">{contract.applyLink}</span>
+            Clicking Apply will redirect you to: <span className="text-primary">{tender.applyLink}</span>
           </p>
         )}
 
@@ -96,10 +96,10 @@ const GovernmentContractDetail = () => {
             onClick={handleApply}
             className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity"
           >
-            {contract.applyLink ? "Apply Now →" : "Apply Now"}
+            {tender.applyLink ? "Apply Now →" : "Apply Now"}
           </button>
-          <button onClick={() => navigate("/government-contracts")} className="flex-1 h-10 rounded-lg border border-border font-semibold hover:bg-muted transition-colors">
-            Back to Contracts
+          <button onClick={() => navigate("/government-tenders")} className="flex-1 h-10 rounded-lg border border-border font-semibold hover:bg-muted transition-colors">
+            Back to Tenders
           </button>
         </div>
       </div>
@@ -107,4 +107,4 @@ const GovernmentContractDetail = () => {
   );
 };
 
-export default GovernmentContractDetail;
+export default GovernmentTenderDetail;

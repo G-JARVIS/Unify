@@ -24,16 +24,27 @@ import Mediation from "./pages/Mediation";
 import GovernmentContracts from "./pages/GovernmentContracts";
 import GovernmentContractDetail from "./pages/GovernmentContractDetail";
 import GovernmentTenders from "./pages/GovernmentTenders";
+import GovernmentTenderDetail from "./pages/GovernmentTenderDetail";
 import Subscriptions from "./pages/Subscriptions";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminContracts from "./pages/admin/AdminContracts";
+import AdminTenders from "./pages/admin/AdminTenders";
 
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <AppLayout>{children}</AppLayout>;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isAdmin } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to="/" replace />;
   return <AppLayout>{children}</AppLayout>;
 }
 
@@ -63,7 +74,12 @@ const AppRoutes = () => {
       <Route path="/government-contracts" element={<ProtectedRoute><GovernmentContracts /></ProtectedRoute>} />
       <Route path="/government-contracts/:id" element={<ProtectedRoute><GovernmentContractDetail /></ProtectedRoute>} />
       <Route path="/government-tenders" element={<ProtectedRoute><GovernmentTenders /></ProtectedRoute>} />
+      <Route path="/government-tenders/:id" element={<ProtectedRoute><GovernmentTenderDetail /></ProtectedRoute>} />
       <Route path="/subscriptions" element={<ProtectedRoute><Subscriptions /></ProtectedRoute>} />
+      {/* Admin Routes */}
+      <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+      <Route path="/admin/contracts" element={<AdminRoute><AdminContracts /></AdminRoute>} />
+      <Route path="/admin/tenders" element={<AdminRoute><AdminTenders /></AdminRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
