@@ -62,3 +62,25 @@ def query_similar_opportunities(
         )
 
     return normalized
+
+
+def upsert_opportunity_vector(vector_id: str, vector: list[float], metadata: dict[str, Any]) -> None:
+    """Upsert an opportunity vector into Pinecone."""
+    if not vector_id:
+        raise ValueError("vector_id cannot be empty")
+    if not vector:
+        raise ValueError("vector cannot be empty")
+
+    index = _get_pinecone_index()
+    try:
+        index.upsert(
+            vectors=[
+                {
+                    "id": vector_id,
+                    "values": vector,
+                    "metadata": metadata,
+                }
+            ]
+        )
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("failed to upsert opportunity vector") from exc

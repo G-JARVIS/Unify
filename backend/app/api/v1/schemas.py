@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import UserRole
+from app.db.models import OpportunityType, UserRole
 
 
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -60,3 +62,32 @@ class MSMEProfileRead(BaseModel):
     fairness_score: float
     capabilities: dict[str, Any]
     certifications: list[str] | dict[str, Any] | None = None
+
+
+class OpportunityCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    organization: str = Field(min_length=1, max_length=255)
+    type: OpportunityType
+    sector: str = Field(min_length=1, max_length=100)
+    budget_min: Decimal | None = Field(default=None, ge=0)
+    budget_max: Decimal | None = Field(default=None, ge=0)
+    deadline: date
+    is_verified: bool = False
+
+
+class OpportunityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    title: str
+    description: str
+    organization: str
+    type: OpportunityType
+    sector: str
+    budget_min: Decimal | None = None
+    budget_max: Decimal | None = None
+    deadline: date
+    is_verified: bool

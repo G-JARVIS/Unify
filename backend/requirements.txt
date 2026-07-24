@@ -4,3 +4,6 @@ passlib[bcrypt]
 python-jose[cryptography]
 pydantic-settings
 uvicorn
+pinecone
+sentence-transformers
+openai
