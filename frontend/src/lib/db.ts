@@ -26,6 +26,9 @@ function mapOpportunity(row: Record<string, unknown>): Opportunity {
   };
 }
 
+// Redirect legacy db calls to the new FastAPI client
+export { api as db } from './api';
+
 export async function fetchOpportunities(): Promise<Opportunity[]> {
   if (!isConfigured) return dummyOpportunities;
   const { data, error } = await supabase.from('opportunities').select('*').order('created_at', { ascending: false });

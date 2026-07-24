@@ -2,6 +2,7 @@ import { opportunities } from "@/data/dummy";
 import { Brain, Lightbulb } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { MatchScoreBar } from "@/components/shared/MatchScoreBar";
 
 const reasons = [
   "Strong experience in IT infrastructure projects",
@@ -32,9 +33,11 @@ const AIRecommendations = () => {
         </p>
       </div>
 
-      <div className="glass-card rounded-xl p-5">
+      <div className="premium-card p-5">
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-accent"><Lightbulb className="h-4 w-4 text-accent-foreground" /></div>
+          <div className="rounded-xl bg-primary/10 p-2.5 text-primary shadow-sm">
+            <Lightbulb className="h-4 w-4" />
+          </div>
           <div>
             <p className="text-sm font-medium">AI Insight</p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -45,26 +48,32 @@ const AIRecommendations = () => {
       </div>
 
       <div className="space-y-4">
-        {sorted.map((opp, i) => (
-          <div key={opp.id} className="glass-card-hover rounded-xl p-5">
-            <div className="flex flex-col md:flex-row md:items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs font-bold ${opp.matchScore >= 80 ? "text-success" : opp.matchScore >= 60 ? "text-warning" : "text-destructive"}`}>
-                    {opp.matchScore}% Match
+        {sorted.map((opportunity, index) => (
+          <div key={opportunity.id} className="premium-card-hover p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex-1 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <MatchScoreBar score={opportunity.matchScore} showLabel={false} />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-muted/60 text-muted-foreground">
+                    {opportunity.type}
                   </span>
-                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{opp.type}</span>
                 </div>
-                <h3 className="text-sm font-semibold">{opp.title}</h3>
-                <p className="text-xs text-muted-foreground mt-1">{opp.postedBy} · {opp.location} · {opp.budgetRange}</p>
-                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+                <h3 className="text-sm font-semibold leading-snug">{opportunity.title}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {opportunity.postedBy} · {opportunity.location} · {opportunity.budgetRange}
+                </p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <Brain className="h-3 w-3 text-primary" />
-                  Recommended because: {reasons[i]}
+                  Recommended because: {reasons[index]}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => handleApply(opp.title)} className="h-8 px-4 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">Apply</button>
-                <button onClick={() => navigate(`/opportunities/${opp.id}`)} className="h-8 px-4 rounded-lg border border-border text-xs font-medium hover:bg-muted">Details</button>
+              <div className="flex gap-2 md:flex-shrink-0">
+                <button onClick={() => handleApply(opportunity.title)} className="h-8 px-4 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">
+                  Apply
+                </button>
+                <button onClick={() => navigate(`/opportunities/${opportunity.id}`)} className="h-8 px-4 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors">
+                  Details
+                </button>
               </div>
             </div>
           </div>

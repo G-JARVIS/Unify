@@ -37,10 +37,42 @@ export function AppSidebar() {
   const location = useLocation();
   const { isAdmin } = useAuth();
 
+  const linkBase = `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 overflow-hidden ${collapsed ? "justify-center" : ""}`;
+  const activeLink = "bg-primary/10 text-primary border-r-2 border-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.12)]";
+  const inactiveLink = "text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground";
+
+  const renderLink = (
+    item: (typeof navItems)[number] | (typeof adminItems)[number] | (typeof bottomItems)[number],
+    isActive: boolean,
+  ) => {
+    const hasBadge = "badge" in item && typeof item.badge === "number";
+
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        className={`${linkBase} ${isActive ? activeLink : inactiveLink}`}
+      >
+        <item.icon className={`h-[18px] w-[18px] flex-shrink-0 ${isActive ? "text-primary" : ""}`} />
+        {!collapsed && <span className="truncate">{item.title}</span>}
+        {isActive && !collapsed && (
+          <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_18px_hsl(var(--primary)/0.7)]" />
+        )}
+        {hasBadge && (
+          <span
+            className={`${collapsed ? "absolute right-2 top-1/2 -translate-y-1/2" : "ml-auto"} min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold ${isActive ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"}`}
+          >
+            {item.badge}
+          </span>
+        )}
+      </NavLink>
+    );
+  };
+
   return (
     <aside
-      className={`${collapsed ? "w-[68px]" : "w-[260px]"}
-        min-h-screen sidebar-gradient border-r border-sidebar-border flex flex-col transition-all duration-300 ease-in-out flex-shrink-0 z-40`}
+      className={`${collapsed ? "w-[74px]" : "w-[272px]"}
+        sticky top-0 h-screen sidebar-gradient border-r border-sidebar-border flex flex-col transition-[width] duration-300 ease-in-out flex-shrink-0 z-40 overflow-hidden`}
     >
       <div className="h-16 flex items-center px-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2.5 overflow-hidden">
@@ -63,23 +95,7 @@ export function AppSidebar() {
         )}
         {navItems.map((item) => {
           const isActive = item.path === "/" ? location.pathname === "/" : location.pathname.startsWith(item.path);
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 group
-                ${isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-                }`}
-            >
-              <item.icon className={`h-[18px] w-[18px] flex-shrink-0 ${isActive ? "text-sidebar-primary" : ""}`} />
-              {!collapsed && <span className="truncate">{item.title}</span>}
-              {isActive && !collapsed && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
-              )}
-            </NavLink>
-          );
+          return renderLink(item, isActive);
         })}
 
         {/* Admin Section */}
@@ -93,23 +109,7 @@ export function AppSidebar() {
             {collapsed && <div className="my-2 border-t border-sidebar-border" />}
             {adminItems.map((item) => {
               const isActive = item.path === "/admin" ? location.pathname === "/admin" : location.pathname.startsWith(item.path);
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                    ${isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-                    }`}
-                >
-                  <item.icon className={`h-[18px] w-[18px] flex-shrink-0 ${isActive ? "text-sidebar-primary" : ""}`} />
-                  {!collapsed && <span className="truncate">{item.title}</span>}
-                  {isActive && !collapsed && (
-                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
-                  )}
-                </NavLink>
-              );
+              return renderLink(item, isActive);
             })}
           </>
         )}
@@ -123,32 +123,14 @@ export function AppSidebar() {
         )}
         {bottomItems.map((item) => {
           const isActive = location.pathname === item.path;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                ${isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-                }`}
-            >
-              <item.icon className="h-[18px] w-[18px] flex-shrink-0" />
-              {!collapsed && <span className="truncate">{item.title}</span>}
-              {"badge" in item && item.badge && !collapsed && (
-                <span className="ml-auto text-[11px] font-semibold gradient-primary text-primary-foreground px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                  {item.badge}
-                </span>
-              )}
-            </NavLink>
-          );
+          return renderLink(item, isActive);
         })}
       </div>
 
       <div className="px-2 pb-4">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors text-sm"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors text-sm"
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <><ChevronLeft className="h-4 w-4" /><span>Collapse</span></>}
         </button>

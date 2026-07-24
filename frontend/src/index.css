@@ -90,6 +90,10 @@
     --sidebar-border: 222 20% 12%;
     --sidebar-ring: 221 83% 53%;
   }
+
+  html {
+    background: hsl(var(--background));
+  }
 }
 
 @layer base {
@@ -99,6 +103,18 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+    background-color: hsl(var(--background));
+    background-image: radial-gradient(circle at top, hsl(221 83% 53% / 0.05), transparent 35%), radial-gradient(circle at bottom right, hsl(262 83% 58% / 0.04), transparent 30%);
+    background-attachment: fixed;
+  }
+  .dark body {
+    background-image: radial-gradient(circle at top, hsl(221 83% 53% / 0.12), transparent 34%), radial-gradient(circle at bottom right, hsl(262 83% 58% / 0.1), transparent 28%);
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.2);
+    color: hsl(var(--foreground));
   }
 }
 
@@ -108,6 +124,15 @@
   }
   .glass-card-hover {
     @apply glass-card transition-all duration-300 hover:shadow-md hover:border-primary/20 hover:-translate-y-0.5;
+  }
+  .glass-header {
+    @apply bg-background/80 backdrop-blur-md border-b border-border/50;
+  }
+  .premium-card {
+    @apply rounded-xl border border-border/60 bg-card/75 shadow-sm backdrop-blur-md;
+  }
+  .premium-card-hover {
+    @apply rounded-xl border border-border/60 bg-card/75 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5;
   }
   .gradient-text {
     background: var(--gradient-primary);

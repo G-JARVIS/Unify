@@ -34,12 +34,12 @@ export function OpportunityCard({ opportunity, onToggleSave }: OpportunityCardPr
   };
 
   return (
-    <div className="glass-card-hover rounded-xl p-5 flex flex-col">
-      <div className="flex items-start justify-between mb-3">
+    <div className="glass-card-hover group relative flex flex-col rounded-xl border border-border/60 bg-card/70 p-5 transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
+      <div className="flex items-start justify-between gap-3 mb-3">
         <span className={`text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${typeColors[opportunity.type]}`}>
           {opportunity.type}
         </span>
-        <button onClick={handleSave} className="p-1 hover:bg-muted rounded-md transition-colors">
+        <button onClick={handleSave} className="rounded-md p-1.5 hover:bg-muted/80 transition-colors">
           {saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4 text-muted-foreground" />}
         </button>
       </div>
