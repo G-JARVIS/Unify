@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Search, FileText, Link2, Brain, TrendingUp, Shield, MessageSquare, Bell, User, Settings, ChevronLeft, ChevronRight, Boxes, Landmark, ShieldCheck, Crown, LayoutGrid
+  LayoutDashboard, Search, FileText, Link2, Brain, TrendingUp, Shield, MessageSquare, Bell, User, Settings, ChevronLeft, ChevronRight, Boxes, Landmark, ShieldCheck, Crown, LayoutGrid, Cpu
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,7 @@ const navItems = [
   { title: "Supply Chain", path: "/supply-chain", icon: Boxes },
   { title: "Collaborations", path: "/collaborations", icon: Link2 },
   { title: "AI Recommendations", path: "/ai-recommendations", icon: Brain },
+  { title: "COMS Matching", path: "/coms-matching", icon: Cpu },
   { title: "Growth Analytics", path: "/company-growth", icon: TrendingUp },
   { title: "Mediation", path: "/mediation", icon: Shield },
 ];

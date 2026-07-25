@@ -15,6 +15,7 @@ import SupplyChainDetail from "./pages/SupplyChainDetail";
 import Collaborations from "./pages/Collaborations";
 import CollaborationDetail from "./pages/CollaborationDetail";
 import AIRecommendations from "./pages/AIRecommendations";
+import COMSMatching from "./pages/COMSMatching";
 import CompanyGrowth from "./pages/CompanyGrowth";
 import Messages from "./pages/Messages";
 import Notifications from "./pages/Notifications";
@@ -65,6 +66,7 @@ const AppRoutes = () => {
       <Route path="/collaborations" element={<ProtectedRoute><Collaborations /></ProtectedRoute>} />
       <Route path="/collaborations/:id" element={<ProtectedRoute><CollaborationDetail /></ProtectedRoute>} />
       <Route path="/ai-recommendations" element={<ProtectedRoute><AIRecommendations /></ProtectedRoute>} />
+      <Route path="/coms-matching" element={<ProtectedRoute><COMSMatching /></ProtectedRoute>} />
       <Route path="/company-growth" element={<ProtectedRoute><CompanyGrowth /></ProtectedRoute>} />
       <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />

@@ -1,15 +1,49 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+import type {
+  LoginCredentials,
+  MatchFilters,
+  MatchResponse,
+  MSMEProfile,
+  Opportunity,
+  RegisterData,
+  Token,
+  User,
+} from "@/types/api";
 
-/**
- * Generic fetch wrapper with standard error handling and Auth header
- */
-async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token');
+// ─── Base URL ────────────────────────────────────────────────
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 
-  const headers = {
-    'Content-Type': 'application/json',
+// ─── Token helpers ───────────────────────────────────────────
+const TOKEN_KEY = "unify_access_token";
+
+export const tokenStore = {
+  get: (): string | null => localStorage.getItem(TOKEN_KEY),
+  set: (token: string): void => localStorage.setItem(TOKEN_KEY, token),
+  clear: (): void => localStorage.removeItem(TOKEN_KEY),
+};
+
+// ─── Core fetch wrapper ──────────────────────────────────────
+
+class APIError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+  ) {
+    super(detail);
+    this.name = "APIError";
+  }
+}
+
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const token = tokenStore.get();
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...options.headers,
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -17,48 +51,112 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     headers,
   });
 
+  // Graceful body parse
+  const isJSON = response.headers
+    .get("content-type")
+    ?.includes("application/json");
+  const body = isJSON ? await response.json() : await response.text();
+
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `API Error: ${response.status} ${response.statusText}`);
+    const detail =
+      typeof body === "object" && body !== null
+        ? body.detail ?? `${response.status} ${response.statusText}`
+        : body || `${response.status} ${response.statusText}`;
+    throw new APIError(response.status, String(detail));
   }
 
-  return response.json();
+  return body as T;
 }
 
-// ==========================================
-// API Methods corresponding to your UI Views
-// ==========================================
+// ─── Convenience helpers ─────────────────────────────────────
+const get = <T>(endpoint: string) => request<T>(endpoint, { method: "GET" });
 
-export const api = {
-  // 1. AI Recommendations (Pinecone + COMS + VRA)
-  getAIRecommendations: (msmeId: string, topK: number = 10) =>
-    fetchAPI<any[]>('/opportunities/recommendations', {
-      method: 'POST',
-      body: JSON.stringify({ msme_id: msmeId, top_k: topK }),
+const post = <T>(endpoint: string, body: unknown) =>
+  request<T>(endpoint, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+// ─── API Namespaces ──────────────────────────────────────────
+
+export const auth = {
+  /** POST /auth/login → Token */
+  login: (credentials: LoginCredentials): Promise<Token> =>
+    post<Token>("/auth/login", credentials),
+
+  /** POST /auth/register → User */
+  register: (userData: RegisterData): Promise<User> =>
+    post<User>("/auth/register", userData),
+
+  /** GET /auth/me → User */
+  me: (): Promise<User> => get<User>("/auth/me"),
+};
+
+export const profiles = {
+  /** GET /profiles/msme/me → MSMEProfile */
+  getMSMEProfile: (): Promise<MSMEProfile> =>
+    get<MSMEProfile>("/profiles/msme/me"),
+};
+
+export const matching = {
+  /**
+   * POST /match/opportunities
+   * msmeId  – UUID of the MSME profile
+   * topK    – number of results (1–50)
+   * filters – optional sector / is_verified filters
+   */
+  getOpportunitiesMatch: (
+    msmeId: string,
+    topK: number = 5,
+    filters: MatchFilters = {},
+  ): Promise<MatchResponse> =>
+    post<MatchResponse>("/match/opportunities", {
+      msme_id: msmeId,
+      top_k: topK,
+      ...(filters.sector?.length ? { sector: filters.sector } : {}),
+      ...(filters.is_verified !== undefined
+        ? { is_verified: filters.is_verified }
+        : {}),
     }),
+};
 
-  // 2. Opportunities Feed
-  getOpportunities: (filters?: { sector?: string; search?: string }) => {
-    const query = new URLSearchParams(filters as Record<string, string>).toString();
-    return fetchAPI<any[]>(`/opportunities?${query}`);
+export const opportunities = {
+  /** GET /opportunities → Opportunity[] */
+  listOpportunities: (params?: {
+    sector?: string;
+    search?: string;
+    is_verified?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<Opportunity[]> => {
+    const qs = new URLSearchParams();
+    if (params?.sector) qs.set("sector", params.sector);
+    if (params?.search) qs.set("search", params.search);
+    if (params?.is_verified !== undefined)
+      qs.set("is_verified", String(params.is_verified));
+    if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+    if (params?.offset !== undefined) qs.set("offset", String(params.offset));
+    const q = qs.toString();
+    return get<Opportunity[]>(`/opportunities${q ? `?${q}` : ""}`);
   },
+};
 
-  // 3. Mediation & Active Deals
-  getActiveDeals: () => fetchAPI<any[]>('/mediation/deals'),
+// Re-export error class so consumers can do: catch (e) { if (e instanceof APIError) ... }
+export { APIError };
 
-  // 4. Messages / Real-Time Collaboration
-  getConversations: () => fetchAPI<any[]>('/messages/conversations'),
+// ─── Backward-compatible legacy API export ───────────────────
+export const api = {
+  getAIRecommendations: (msmeId: string, topK: number = 10) =>
+    post<any[]>("/opportunities/recommendations", { msme_id: msmeId, top_k: topK }),
+  getOpportunities: (filters?: { sector?: string; search?: string }) => {
+    const qs = new URLSearchParams(filters as Record<string, string>).toString();
+    return get<any[]>(`/opportunities${qs ? `?${qs}` : ""}`);
+  },
+  getActiveDeals: () => get<any[]>("/mediation/deals"),
+  getConversations: () => get<any[]>("/messages/conversations"),
   sendMessage: (recipientId: string, message: string) =>
-    fetchAPI<any>('/messages/send', {
-      method: 'POST',
-      body: JSON.stringify({ recipient_id: recipientId, message }),
-    }),
-
-  // 5. User Profile
-  getProfile: () => fetchAPI<any>('/profile/me'),
+    post<any>("/messages/send", { recipient_id: recipientId, message }),
+  getProfile: () => get<any>("/profile/me"),
   updateProfile: (profileData: any) =>
-    fetchAPI<any>('/profile/me', {
-      method: 'PUT',
-      body: JSON.stringify(profileData),
-    }),
+    request<any>("/profile/me", { method: "PUT", body: JSON.stringify(profileData) }),
 };
