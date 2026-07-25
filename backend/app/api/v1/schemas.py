@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import OpportunityType, UserRole
+from app.db.models import ContractStatus, OpportunityType, UserRole
 
 
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -91,3 +91,64 @@ class OpportunityRead(BaseModel):
     budget_max: Decimal | None = None
     deadline: date
     is_verified: bool
+
+
+# ---------------------------------------------------------------------------
+# Milestone schemas
+# ---------------------------------------------------------------------------
+
+
+class MilestoneCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    payout_percentage: int = Field(ge=1, le=100)
+    due_date: date
+
+
+class MilestoneRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    contract_id: UUID
+    title: str
+    payout_percentage: int
+    is_completed: bool
+    due_date: date
+
+
+class MilestoneUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_completed: bool
+
+
+# ---------------------------------------------------------------------------
+# Contract schemas
+# ---------------------------------------------------------------------------
+
+
+class ContractCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opportunity_id: UUID | None = None
+    msme_id: UUID
+    agreed_amount: Decimal = Field(gt=0)
+    milestones: list[MilestoneCreate] = Field(default_factory=list)
+
+
+class ContractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    opportunity_id: UUID | None = None
+    msme_id: UUID | None = None
+    status: ContractStatus
+    agreed_amount: Decimal
+    milestones: list[MilestoneRead] = Field(default_factory=list)
+
+
+class ContractUpdateStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContractStatus
