@@ -12,19 +12,26 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Please fill in all fields");
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      login(email, password);
-      toast.success("Welcome back!");
-      navigate("/");
+    try {
+      const success = await login(email, password);
+      if (success) {
+        toast.success("Welcome back!");
+        navigate("/");
+      } else {
+        toast.error("Incorrect email or password");
+      }
+    } catch {
+      toast.error("Login failed. Please try again.");
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   return (

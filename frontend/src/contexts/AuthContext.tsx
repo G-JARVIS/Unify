@@ -1,5 +1,10 @@
-import { createContext, useContext, useState, ReactNode } from "react";
-import { tokenStore } from "@/lib/api";
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+} from "react";
+import { auth as authAPI, profiles as profilesAPI, tokenStore, APIError } from "@/lib/api";
 
 const ADMIN_EMAIL = "admin@unify.com";
 
@@ -14,8 +19,8 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (email: string, password: string) => boolean;
-  signup: (name: string, email: string, password: string, company: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
+  signup: (name: string, email: string, password: string, company: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -27,32 +32,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored ? JSON.parse(stored) : null;
   });
 
-  const login = (email: string, _password: string) => {
+  const login = async (email: string, password: string): Promise<boolean> => {
+    // 1) Try real FastAPI backend
+    let backendOk = false;
+    try {
+      const tokenRes = await authAPI.login({ email, password });
+      tokenStore.set(tokenRes.access_token);
+      backendOk = true;
+    } catch (err) {
+      if (err instanceof APIError && err.status === 401) {
+        return false;
+      }
+      console.warn("Backend unavailable, falling back to demo auth:", err);
+      tokenStore.set("demo-session");
+    }
+
+    // 2) Try to fetch the real profile for name/company
     const isAdmin = email === ADMIN_EMAIL;
+    let displayName = isAdmin ? "Admin" : email.split("@")[0];
+    let companyName = isAdmin ? "UNIFY Admin" : email.split("@")[0];
+
+    if (backendOk && !isAdmin) {
+      try {
+        const profile = await profilesAPI.getMSMEProfile();
+        companyName = profile.company_name || companyName;
+        displayName = profile.company_name || displayName;
+      } catch {
+        // Profile may not exist yet — that's fine
+      }
+    }
+
     const u: User = {
-      name: isAdmin ? "Admin" : "C-78 PVT LTD",
+      name: displayName,
       email,
-      company: isAdmin ? "UNIFY Admin" : "C-78 PVT LTD",
+      company: companyName,
       isAdmin,
     };
     setUser(u);
     localStorage.setItem("unify_user", JSON.stringify(u));
-    // Store a demo token so the COMS dashboard can detect a logged-in session.
-    // Real backend login (with JWT) is handled separately in the COMS dashboard.
-    if (!tokenStore.get()) {
-      tokenStore.set("demo-session");
-    }
     return true;
   };
 
-  const signup = (name: string, email: string, _password: string, company: string) => {
-    const u: User = { name, email, company, isAdmin: false };
-    setUser(u);
-    localStorage.setItem("unify_user", JSON.stringify(u));
-    if (!tokenStore.get()) {
+  const signup = async (
+    name: string,
+    email: string,
+    password: string,
+    company: string,
+  ): Promise<boolean> => {
+    try {
+      await authAPI.register({ email, password, role: "msme" });
+      return login(email, password);
+    } catch {
+      // Demo fallback
       tokenStore.set("demo-session");
+      const u: User = { name, email, company, isAdmin: false };
+      setUser(u);
+      localStorage.setItem("unify_user", JSON.stringify(u));
+      return true;
     }
-    return true;
   };
 
   const logout = () => {

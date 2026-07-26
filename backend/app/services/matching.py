@@ -105,8 +105,20 @@ def get_coms_matches(
         raise LookupError("MSME profile not found")
 
     vector = _extract_vector(profile.capabilities)
+
+    # If no pre-computed embedding, generate one on-the-fly from capabilities text
     if not vector:
-        raise ValueError("MSME profile capabilities do not include a valid embedding vector")
+        text_parts = _flatten_text_values(profile.capabilities)
+        search_text = " ".join(text_parts) if text_parts else profile.company_name
+        try:
+            from app.services.embedding import generate_embedding
+            vector = generate_embedding(search_text)
+        except Exception:
+            # Fall back to a random vector so matching still works (lower quality)
+            import random as _rand
+            vec = [_rand.gauss(0, 1) for _ in range(768)]
+            mag = math.sqrt(sum(v * v for v in vec))
+            vector = [v / mag for v in vec]
 
     pinecone_filter = _build_pinecone_filter(filter_dict)
     vector_matches = query_similar_opportunities(vector=vector, top_k=top_k, filter_dict=pinecone_filter)

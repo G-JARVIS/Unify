@@ -14,19 +14,26 @@ const Signup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !password || !company) {
       toast.error("Please fill in all fields");
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      signup(name, email, password, company);
-      toast.success("Account created!", { description: "Welcome to UNIFY." });
-      navigate("/");
+    try {
+      const success = await signup(name, email, password, company);
+      if (success) {
+        toast.success("Account created!", { description: "Welcome to UNIFY." });
+        navigate("/");
+      } else {
+        toast.error("Registration failed");
+      }
+    } catch {
+      toast.error("Registration failed. Please try again.");
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   return (

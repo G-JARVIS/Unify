@@ -14,7 +14,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 
 // ─── Token helpers ───────────────────────────────────────────
-const TOKEN_KEY = "unify_access_token";
+const TOKEN_KEY = "token";
 
 export const tokenStore = {
   get: (): string | null => localStorage.getItem(TOKEN_KEY),

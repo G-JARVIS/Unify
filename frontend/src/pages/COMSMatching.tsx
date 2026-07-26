@@ -375,8 +375,7 @@ const COMSMatchingDashboard = () => {
   // ── Load profile on mount ──
   useEffect(() => {
     const token = tokenStore.get();
-    // Skip real API call for demo/placeholder tokens
-    if (!token || token === "demo-session") {
+    if (!token) {
       setProfileLoading(false);
       return;
     }
@@ -385,7 +384,7 @@ const COMSMatchingDashboard = () => {
       .then(setProfile)
       .catch((err) => {
         if (err instanceof APIError && (err.status === 404 || err.status === 401)) {
-          // No profile yet or demo token — that's fine, show empty state
+          // No profile yet or invalid token — show empty state
         } else {
           console.warn("Profile fetch failed:", err);
         }

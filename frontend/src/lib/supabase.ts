@@ -1,7 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// ─── Supabase is DISABLED ────────────────────────────────────
+// All data now flows through our FastAPI backend at /api/v1.
+// The Supabase client is kept as a no-op stub so legacy db.ts
+// functions compile but always fall back to dummy data.
+const supabaseUrl = '';
+const supabaseAnonKey = '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const isConfigured = !!supabaseUrl && supabaseUrl !== 'your-supabase-project-url' && !!supabaseAnonKey && supabaseAnonKey !== 'your-supabase-anon-key';
+export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder');
+
+// Force isConfigured = false so every db.ts function returns dummy data
+// instead of making Supabase REST calls that 400.
+export const isConfigured = false;
