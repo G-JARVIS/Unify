@@ -7,6 +7,10 @@ import type {
   RegisterData,
   Token,
   User,
+  ContractCreate,
+  ContractRead,
+  ContractStatus,
+  MilestoneRead,
 } from "@/types/api";
 
 // ─── Base URL ────────────────────────────────────────────────
@@ -58,6 +62,11 @@ async function request<T>(
   const body = isJSON ? await response.json() : await response.text();
 
   if (!response.ok) {
+    // Only dispatch global 401 for protected routes, NOT for /auth/* endpoints.
+    // This prevents a wrong-password login attempt from triggering an automatic logout.
+    if (response.status === 401 && !endpoint.startsWith("/auth/")) {
+      window.dispatchEvent(new CustomEvent("unify:unauthorized"));
+    }
     const detail =
       typeof body === "object" && body !== null
         ? body.detail ?? `${response.status} ${response.statusText}`
@@ -96,6 +105,14 @@ export const profiles = {
   /** GET /profiles/msme/me → MSMEProfile */
   getMSMEProfile: (): Promise<MSMEProfile> =>
     get<MSMEProfile>("/profiles/msme/me"),
+
+  /** POST /profiles/msme → MSMEProfile (create or update) */
+  upsertMSMEProfile: (data: {
+    company_name: string;
+    udyam_registration?: string | null;
+    capabilities?: Record<string, unknown>;
+  }): Promise<MSMEProfile> =>
+    post<MSMEProfile>("/profiles/msme", data),
 };
 
 export const matching = {
@@ -139,6 +156,29 @@ export const opportunities = {
     const q = qs.toString();
     return get<Opportunity[]>(`/opportunities${q ? `?${q}` : ""}`);
   },
+};
+
+export const contracts = {
+  /** POST /contracts → ContractRead */
+  createContract: (data: ContractCreate): Promise<ContractRead> =>
+    post<ContractRead>("/contracts", data),
+
+  /** GET /contracts → ContractRead[] */
+  listContracts: (): Promise<ContractRead[]> => get<ContractRead[]>("/contracts"),
+
+  /** PATCH /contracts/{id}/status → ContractRead */
+  updateStatus: (id: string, status: ContractStatus): Promise<ContractRead> =>
+    request<ContractRead>(`/contracts/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  /** PATCH /contracts/milestones/{id} → MilestoneRead */
+  updateMilestone: (id: string, is_completed: boolean): Promise<MilestoneRead> =>
+    request<MilestoneRead>(`/contracts/milestones/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_completed }),
+    }),
 };
 
 // Re-export error class so consumers can do: catch (e) { if (e instanceof APIError) ... }

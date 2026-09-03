@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useState,
+  useEffect,
   ReactNode,
 } from "react";
 import { auth as authAPI, profiles as profilesAPI, tokenStore, APIError } from "@/lib/api";
@@ -32,45 +33,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored ? JSON.parse(stored) : null;
   });
 
+  const logout = () => {
+    setUser(null);
+    tokenStore.clear();
+    localStorage.removeItem("unify_user");
+  };
+
+  // ─── Global 401 Interceptor ───
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      console.warn("Session expired or unauthorized. Logging out.");
+      logout();
+    };
+
+    window.addEventListener("unify:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("unify:unauthorized", handleUnauthorized);
+  }, []);
+
+  // ─── Token Hydration ───
+  useEffect(() => {
+    const hydrate = async () => {
+      const token = tokenStore.get();
+      if (!token) {
+        if (user) logout(); // clear stale state
+        return;
+      }
+
+      try {
+        const me = await authAPI.me();
+        const isAdmin = me.role === "ADMIN" || me.email === ADMIN_EMAIL;
+        let displayName = isAdmin ? "Admin" : me.email.split("@")[0];
+        let companyName = isAdmin ? "UNIFY Admin" : me.email.split("@")[0];
+
+        if (!isAdmin) {
+          try {
+            const profile = await profilesAPI.getMSMEProfile();
+            companyName = profile.company_name || companyName;
+            displayName = profile.company_name || displayName;
+          } catch (err) {
+            // Profile may not exist yet, that's fine.
+          }
+        }
+
+        const u: User = {
+          name: displayName,
+          email: me.email,
+          company: companyName,
+          isAdmin,
+        };
+        setUser(u);
+        localStorage.setItem("unify_user", JSON.stringify(u));
+      } catch (err) {
+        if (err instanceof APIError && err.status === 401) {
+          logout();
+        }
+      }
+    };
+    hydrate();
+  }, []); // Run once on mount
+
   const login = async (email: string, password: string): Promise<boolean> => {
-    // 1) Try real FastAPI backend
-    let backendOk = false;
     try {
       const tokenRes = await authAPI.login({ email, password });
       tokenStore.set(tokenRes.access_token);
-      backendOk = true;
+      
+      const me = await authAPI.me();
+      const isAdmin = me.role === "ADMIN" || me.email === ADMIN_EMAIL;
+      let displayName = isAdmin ? "Admin" : email.split("@")[0];
+      let companyName = isAdmin ? "UNIFY Admin" : email.split("@")[0];
+
+      if (!isAdmin) {
+        try {
+          const profile = await profilesAPI.getMSMEProfile();
+          companyName = profile.company_name || companyName;
+          displayName = profile.company_name || displayName;
+        } catch {
+          // Profile may not exist yet — that's fine
+        }
+      }
+
+      const u: User = {
+        name: displayName,
+        email,
+        company: companyName,
+        isAdmin,
+      };
+      setUser(u);
+      localStorage.setItem("unify_user", JSON.stringify(u));
+      return true;
     } catch (err) {
-      if (err instanceof APIError && err.status === 401) {
-        return false;
-      }
-      console.warn("Backend unavailable, falling back to demo auth:", err);
-      tokenStore.set("demo-session");
+      console.error("Login failed:", err);
+      return false;
     }
-
-    // 2) Try to fetch the real profile for name/company
-    const isAdmin = email === ADMIN_EMAIL;
-    let displayName = isAdmin ? "Admin" : email.split("@")[0];
-    let companyName = isAdmin ? "UNIFY Admin" : email.split("@")[0];
-
-    if (backendOk && !isAdmin) {
-      try {
-        const profile = await profilesAPI.getMSMEProfile();
-        companyName = profile.company_name || companyName;
-        displayName = profile.company_name || displayName;
-      } catch {
-        // Profile may not exist yet — that's fine
-      }
-    }
-
-    const u: User = {
-      name: displayName,
-      email,
-      company: companyName,
-      isAdmin,
-    };
-    setUser(u);
-    localStorage.setItem("unify_user", JSON.stringify(u));
-    return true;
   };
 
   const signup = async (
@@ -80,22 +134,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     company: string,
   ): Promise<boolean> => {
     try {
-      await authAPI.register({ email, password, role: "msme" });
-      return login(email, password);
-    } catch {
-      // Demo fallback
-      tokenStore.set("demo-session");
-      const u: User = { name, email, company, isAdmin: false };
-      setUser(u);
-      localStorage.setItem("unify_user", JSON.stringify(u));
-      return true;
-    }
-  };
+      await authAPI.register({ email, password, role: "MSME" });
+      const loggedIn = await login(email, password);
+      if (!loggedIn) return false;
 
-  const logout = () => {
-    setUser(null);
-    tokenStore.clear();
-    localStorage.removeItem("unify_user");
+      // Auto-create MSME profile using the company name from signup
+      try {
+        await profilesAPI.upsertMSMEProfile({ company_name: company });
+      } catch (err) {
+        console.warn("Profile creation failed (non-fatal):", err);
+      }
+      return true;
+    } catch (err) {
+      console.error("Signup failed:", err);
+      return false;
+    }
   };
 
   return (

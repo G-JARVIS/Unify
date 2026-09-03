@@ -4,7 +4,7 @@
 
 // --------------- Auth & User --------------------------------
 
-export type UserRole = "msme" | "admin" | "consultant";
+export type UserRole = "MSME" | "ADMIN" | "CONSULTANT" | "VENDOR";
 
 export interface User {
   id: string;
@@ -108,4 +108,39 @@ export interface MatchFilters {
 export interface APIError {
   detail: string;
   status: number;
+}
+
+// --------------- Contracts & Milestones ------------------------
+
+export type ContractStatus = "UNDER_REVIEW" | "VERIFIED" | "ESCROW_PENDING" | "ACTIVE" | "COMPLETED" | "DISPUTED";
+
+export interface MilestoneCreate {
+  title: string;
+  payout_percentage: number;
+  due_date: string; // ISO date string
+}
+
+export interface MilestoneRead {
+  id: string;
+  contract_id: string;
+  title: string;
+  payout_percentage: number;
+  is_completed: boolean;
+  due_date: string; // ISO date string
+}
+
+export interface ContractCreate {
+  opportunity_id?: string | null;
+  msme_id: string;
+  agreed_amount: number;
+  milestones: MilestoneCreate[];
+}
+
+export interface ContractRead {
+  id: string;
+  opportunity_id: string | null;
+  msme_id: string | null;
+  status: ContractStatus;
+  agreed_amount: number;
+  milestones: MilestoneRead[];
 }

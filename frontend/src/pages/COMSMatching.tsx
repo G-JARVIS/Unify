@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { matching, profiles, tokenStore, APIError } from "@/lib/api";
+import { matching, profiles, contracts, tokenStore, APIError } from "@/lib/api";
 import type { OpportunityMatch, MSMEProfile, MatchFilters } from "@/types/api";
 
 // ─── Hardcoded seed MSME id for demo (matches seeded data) ───
@@ -197,16 +197,42 @@ function SkeletonCard() {
 function MatchCard({
   match,
   index,
+  msmeId,
 }: {
   match: OpportunityMatch;
   index: number;
+  msmeId?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
-  const handleApply = () => {
-    toast.success("Interest expressed!", {
-      description: `Your application for "${match.title}" has been queued.`,
-    });
+  const handleApply = async () => {
+    if (!msmeId) {
+      toast.error("Profile required to apply.");
+      return;
+    }
+    setIsApplying(true);
+    try {
+      await contracts.createContract({
+        opportunity_id: match.opportunity_id,
+        msme_id: msmeId,
+        agreed_amount: 100000, // Placeholder
+        milestones: [
+          { title: "Project Kickoff", payout_percentage: 20, due_date: new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0] },
+          { title: "Midpoint Review", payout_percentage: 30, due_date: new Date(Date.now() + 86400000 * 30).toISOString().split('T')[0] },
+          { title: "Final Delivery", payout_percentage: 50, due_date: new Date(Date.now() + 86400000 * 60).toISOString().split('T')[0] }
+        ]
+      });
+      toast.success("Interest expressed!", {
+        description: `Your application for "${match.title}" has been queued.`,
+      });
+    } catch (err) {
+      toast.error("Failed to apply", {
+        description: err instanceof APIError ? err.detail : "Unknown error",
+      });
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   const handleViewDetails = () => {
@@ -328,10 +354,11 @@ function MatchCard({
       <div className="flex gap-2 pt-1">
         <button
           onClick={handleApply}
-          className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg gradient-primary text-white text-xs font-semibold hover:opacity-90 active:scale-95 transition-all"
+          disabled={isApplying}
+          className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg gradient-primary text-white text-xs font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
         >
-          <Send className="h-3.5 w-3.5" />
-          Express Interest
+          {isApplying ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          {isApplying ? "Applying..." : "Express Interest"}
         </button>
         <button
           onClick={handleViewDetails}
@@ -648,7 +675,7 @@ const COMSMatchingDashboard = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {matches.map((m, i) => (
-              <MatchCard key={m.opportunity_id} match={m} index={i} />
+              <MatchCard key={m.opportunity_id} match={m} index={i} msmeId={profile?.id} />
             ))}
           </div>
         </>
