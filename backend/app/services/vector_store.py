@@ -6,18 +6,29 @@ from typing import Any
 from app.core.config import get_settings
 
 
+def pinecone_configured() -> bool:
+    """True when a real-looking Pinecone key and index name are configured."""
+    settings = get_settings()
+    key = (settings.pinecone_api_key or "").strip()
+    return bool(key) and not key.lower().startswith("your-") and bool(settings.pinecone_index_name)
+
+
 @lru_cache(maxsize=1)
 def _get_pinecone_index() -> Any:
     """Initialize and cache the Pinecone index client."""
+    if not pinecone_configured():
+        raise RuntimeError("Pinecone is not configured")
     settings = get_settings()
     try:
         from pinecone import Pinecone
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("pinecone package is not installed") from exc
 
-    client = Pinecone(api_key=settings.pinecone_api_key)
-    index_name = settings.pinecone_index_name or "unify-opportunities"
-    return client.Index(index_name)
+    try:
+        client = Pinecone(api_key=settings.pinecone_api_key)
+        return client.Index(settings.pinecone_index_name or "unify-opportunities")
+    except Exception as exc:
+        raise RuntimeError(f"Pinecone is unavailable: {exc}") from exc
 
 
 def query_similar_opportunities(

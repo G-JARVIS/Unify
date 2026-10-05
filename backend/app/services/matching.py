@@ -5,10 +5,11 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.db.models import MSMEProfile, Opportunity
-from app.services.vector_store import query_similar_opportunities
+from app.services.vector_store import pinecone_configured, query_similar_opportunities
 
 
 def _extract_vector(capabilities: dict[str, Any]) -> list[float] | None:
@@ -41,8 +42,15 @@ def _flatten_text_values(value: Any) -> list[str]:
     return values
 
 
+_STOPWORDS = frozenset({"and", "or", "the", "for", "with", "of", "in", "to", "a", "an", "on", "at", "by", "&"})
+
+
 def _tokenize(text: str) -> set[str]:
-    return {token for token in text.lower().replace("/", " ").replace("-", " ").split() if token}
+    return {
+        token
+        for token in text.lower().replace("/", " ").replace("-", " ").replace(",", " ").split()
+        if len(token) > 1 and token not in _STOPWORDS
+    }
 
 
 def _capability_overlap_score(profile: MSMEProfile, opportunity: Opportunity) -> tuple[float, list[str]]:
@@ -93,6 +101,51 @@ def _build_pinecone_filter(filter_dict: dict[str, Any] | None) -> dict[str, Any]
     return pinecone_filter or None
 
 
+_OPP_VECTOR_CACHE: dict[uuid.UUID, tuple[int, list[float]]] = {}
+
+
+def _opportunity_vector(opportunity: Opportunity) -> list[float] | None:
+    text = " ".join([opportunity.title, opportunity.description, opportunity.sector, opportunity.organization])
+    key = hash(text)
+    cached = _OPP_VECTOR_CACHE.get(opportunity.id)
+    if cached and cached[0] == key:
+        return cached[1]
+    try:
+        from app.services.embedding import generate_embedding
+        vec = generate_embedding(text)
+    except Exception:
+        return None
+    _OPP_VECTOR_CACHE[opportunity.id] = (key, vec)
+    return vec
+
+
+def _local_vector_search(
+    db: Session, vector: list[float] | None, filter_dict: dict[str, Any] | None
+) -> tuple[list[uuid.UUID], dict[uuid.UUID, float]]:
+    """In-process similarity search over the SQL opportunities (used when Pinecone is unavailable)."""
+    stmt = select(Opportunity)
+    if filter_dict:
+        sectors = filter_dict.get("sector")
+        if sectors:
+            sectors = [sectors] if isinstance(sectors, str) else list(sectors)
+            stmt = stmt.where(or_(*[Opportunity.sector.ilike(f"%{x.strip()}%") for x in sectors]))
+        if isinstance(filter_dict.get("is_verified"), bool):
+            stmt = stmt.where(Opportunity.is_verified == filter_dict["is_verified"])
+    opportunities = db.exec(stmt).all()
+
+    scores: dict[uuid.UUID, float] = {}
+    for opp in opportunities:
+        opp_vec = _opportunity_vector(opp) if vector else None
+        if vector and opp_vec and len(opp_vec) == len(vector):
+            dot = sum(a * b for a, b in zip(vector, opp_vec))
+            norm = math.sqrt(sum(a * a for a in vector)) * math.sqrt(sum(b * b for b in opp_vec))
+            scores[opp.id] = dot / norm if norm else 0.0
+        else:
+            scores[opp.id] = 0.0
+    ordered = sorted(scores, key=lambda oid: scores[oid], reverse=True)
+    return ordered, scores
+
+
 def get_coms_matches(
     db: Session,
     msme_id: uuid.UUID,
@@ -106,7 +159,7 @@ def get_coms_matches(
 
     vector = _extract_vector(profile.capabilities)
 
-    # If no pre-computed embedding, generate one on-the-fly from capabilities text
+    # If no pre-computed embedding, generate one on-the-fly from capabilities text.
     if not vector:
         text_parts = _flatten_text_values(profile.capabilities)
         search_text = " ".join(text_parts) if text_parts else profile.company_name
@@ -114,31 +167,30 @@ def get_coms_matches(
             from app.services.embedding import generate_embedding
             vector = generate_embedding(search_text)
         except Exception:
-            # Fall back to a random vector so matching still works (lower quality)
-            import random as _rand
-            vec = [_rand.gauss(0, 1) for _ in range(768)]
-            mag = math.sqrt(sum(v * v for v in vec))
-            vector = [v / mag for v in vec]
-
-    pinecone_filter = _build_pinecone_filter(filter_dict)
-    vector_matches = query_similar_opportunities(vector=vector, top_k=top_k, filter_dict=pinecone_filter)
-    if not vector_matches:
-        return []
+            vector = None  # rank on capability overlap only
 
     id_to_score: dict[uuid.UUID, float] = {}
     ordered_ids: list[uuid.UUID] = []
-    for match in vector_matches:
-        raw_id = match.get("id")
-        if not raw_id:
-            continue
+    used_pinecone = False
+    if vector and pinecone_configured():
         try:
-            opportunity_id = uuid.UUID(str(raw_id))
-        except ValueError:
-            continue
+            vector_matches = query_similar_opportunities(
+                vector=vector, top_k=top_k, filter_dict=_build_pinecone_filter(filter_dict)
+            )
+            used_pinecone = True
+        except RuntimeError:
+            vector_matches = []  # Pinecone down / bad key -> local fallback below
+        for match in vector_matches:
+            try:
+                opportunity_id = uuid.UUID(str(match.get("id")))
+            except ValueError:
+                continue
+            if opportunity_id not in id_to_score:
+                ordered_ids.append(opportunity_id)
+            id_to_score[opportunity_id] = float(match.get("score") or 0.0)
 
-        if opportunity_id not in id_to_score:
-            ordered_ids.append(opportunity_id)
-        id_to_score[opportunity_id] = float(match.get("score") or 0.0)
+    if not used_pinecone:
+        ordered_ids, id_to_score = _local_vector_search(db, vector, filter_dict)
 
     if not ordered_ids:
         return []

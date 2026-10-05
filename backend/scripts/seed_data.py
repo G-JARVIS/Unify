@@ -44,7 +44,7 @@ from app.db.models import (  # noqa: E402
     User,
     UserRole,
 )
-from app.services.vector_store import upsert_opportunity_vector  # noqa: E402
+from app.services.vector_store import pinecone_configured, upsert_opportunity_vector  # noqa: E402
 
 EMBEDDING_DIMENSION = 768
 
@@ -318,9 +318,16 @@ def main() -> None:
 
     # -- 3. Opportunities -> Pinecone ----------------------------------------
     # The session is fully closed here; all access goes through plain snapshots.
-    print("\n[+] Seeding opportunities to Pinecone...")
-    for snap in snapshots:
-        _index_opportunity(snap, use_random)
+    if pinecone_configured():
+        print("\n[+] Seeding opportunities to Pinecone...")
+        for snap in snapshots:
+            try:
+                _index_opportunity(snap, use_random)
+            except RuntimeError as exc:
+                print(f"    [!] Pinecone indexing failed ({exc}); matching will use the local fallback.")
+                break
+    else:
+        print("\n[~] Pinecone not configured - skipping vector indexing (matching uses the local fallback).")
 
     print("\n[DONE] Seeding completed!\n")
 
