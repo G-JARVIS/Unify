@@ -16,8 +16,8 @@ router = APIRouter(tags=["chat"])
 
 
 class ChatMessage(BaseModel):
-    role: str = Field(..., pattern="^(user|assistant|system)$")
-    content: str
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=8000)
 
 
 class ChatRequest(BaseModel):

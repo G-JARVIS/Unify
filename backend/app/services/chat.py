@@ -202,16 +202,23 @@ def _exec_explain_match(
         )
         import math
 
-        vector = _extract_vector(profile.capabilities)
         vector_score = 0.0
-        if not vector:
-            text_parts = _flatten_text_values(profile.capabilities)
-            search_text = " ".join(text_parts) if text_parts else profile.company_name
-            try:
-                from app.services.embedding import generate_embedding
-                vector = generate_embedding(search_text)
-            except Exception:
-                pass
+        try:
+            from app.services.embedding import generate_embedding
+
+            profile_vector = _extract_vector(profile.capabilities)
+            if not profile_vector:
+                text_parts = _flatten_text_values(profile.capabilities)
+                profile_vector = generate_embedding(" ".join(text_parts) if text_parts else profile.company_name)
+            opp_vector = generate_embedding(
+                " ".join([opportunity.title, opportunity.description, opportunity.sector, opportunity.organization])
+            )
+            dot = sum(a * b for a, b in zip(profile_vector, opp_vector))
+            norm = math.sqrt(sum(a * a for a in profile_vector)) * math.sqrt(sum(b * b for b in opp_vector))
+            if norm:
+                vector_score = _normalize_vector_score(dot / norm)
+        except Exception:
+            vector_score = 0.0  # embeddings unavailable: fall back to keyword overlap only
 
         capability_score, capability_tags = _capability_overlap_score(profile, opportunity)
         coms_score = round((0.7 * vector_score) + (0.3 * capability_score), 4)
@@ -378,156 +385,135 @@ def build_system_prompt(current_user: User) -> str:
     )
 
 
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+MAX_TOOL_ROUNDS = 3
+MAX_HISTORY_MESSAGES = 20
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, default=str)}\n\n"
+
+
+def _text_event(text: str) -> str:
+    return _sse({"delta": text, "done": False, "type": "text"})
+
+
+def _run_tool(db: Session, current_user: User, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if name == "search_opportunities":
+            return _exec_search_opportunities(db, args)
+        if name == "explain_match":
+            return _exec_explain_match(db, current_user, args)
+        if name == "get_contract_status":
+            return _exec_get_contract_status(db, current_user, args)
+        if name == "platform_help":
+            return _exec_platform_help(args)
+        return {"error": f"Unknown tool: {name}"}
+    except Exception as exc:
+        db.rollback()
+        return {"error": f"Tool execution failed: {exc}"}
+
+
+def _friendly_error(exc: Exception) -> str:
+    text = str(exc)
+    status = getattr(exc, "status_code", None)
+    if status == 401 or "invalid_api_key" in text:
+        return "The Groq API key is invalid. Please check GROQ_API_KEY in backend/.env."
+    if status == 429:
+        return "The AI service is rate-limited right now. Please try again in a moment."
+    if status == 404 or "model_not_found" in text:
+        return "The configured Groq model was not found. Please check GROQ_MODEL in backend/.env."
+    return f"Error connecting to AI service: {text}"
+
+
 def stream_chat_response(
     db: Session,
     current_user: User,
     messages: list[dict[str, Any]],
 ) -> Generator[str, None, None]:
-    """
-    Stream chat response as SSE events. Each yield is a complete SSE data line.
-    Yields: 'data: <json>\\n\\n' events, ending with 'data: [DONE]\\n\\n'
+    """Stream a Groq chat completion (with tool use) as SSE events.
+
+    Each yield is a complete ``data: <json>\\n\\n`` line, ending with ``data: [DONE]``.
     """
     from app.core.config import get_settings
     from openai import OpenAI
 
     settings = get_settings()
-    if not settings.gemini_api_key:
-        yield f"data: {json.dumps({'delta': 'Gemini API key is not configured. Please add GEMINI_API_KEY to your .env file.', 'done': False, 'type': 'text'})}\n\n"
+    if not settings.groq_api_key:
+        yield _text_event("Groq API key is not configured. Please add GROQ_API_KEY to your .env file.")
         yield "data: [DONE]\n\n"
         return
 
-    client = OpenAI(
-        api_key=settings.gemini_api_key,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
+    client = OpenAI(api_key=settings.groq_api_key, base_url=GROQ_BASE_URL, max_retries=2, timeout=60.0)
+    model = settings.groq_model
 
-    system_message = {"role": "system", "content": build_system_prompt(current_user)}
-    full_messages = [system_message] + messages
+    conversation: list[dict[str, Any]] = [
+        {"role": "system", "content": build_system_prompt(current_user)},
+        *messages[-MAX_HISTORY_MESSAGES:],
+    ]
 
-    # First API call (may trigger tool use)
-    try:
-        response = client.chat.completions.create(
-            model="gemini-3.8-flash",
-            messages=full_messages,  # type: ignore[arg-type]
-            tools=CHAT_TOOLS,  # type: ignore[arg-type]
-            tool_choice="auto",
-            stream=True,
-        )
-    except Exception as exc:
-        yield f"data: {json.dumps({'delta': f'Error connecting to AI service: {exc}', 'done': False, 'type': 'text'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
+    use_tools = True
+    round_no = 0
+    while True:
+        round_no += 1
+        offer_tools = use_tools and round_no <= MAX_TOOL_ROUNDS
+        kwargs: dict[str, Any] = {"model": model, "messages": conversation, "stream": True, "temperature": 0.3}
+        if offer_tools:
+            kwargs["tools"] = CHAT_TOOLS
+            kwargs["tool_choice"] = "auto"
 
-    # Stream first response, collecting tool calls
-    accumulated_content = ""
-    tool_calls_acc: dict[int, dict[str, Any]] = {}
-    finish_reason = None
-
-    for chunk in response:
-        choice = chunk.choices[0] if chunk.choices else None
-        if not choice:
-            continue
-
-        finish_reason = choice.finish_reason
-        delta = choice.delta
-
-        # Stream text tokens
-        if delta.content:
-            accumulated_content += delta.content
-            yield f"data: {json.dumps({'delta': delta.content, 'done': False, 'type': 'text'})}\n\n"
-
-        # Accumulate tool call deltas
-        if delta.tool_calls:
-            for tc_delta in delta.tool_calls:
-                idx = tc_delta.index
-                if idx not in tool_calls_acc:
-                    tool_calls_acc[idx] = {
-                        "id": "",
-                        "type": "function",
-                        "function": {"name": "", "arguments": ""},
-                    }
-                if tc_delta.id:
-                    tool_calls_acc[idx]["id"] += tc_delta.id
-                if tc_delta.function:
-                    if tc_delta.function.name:
-                        tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
-                    if tc_delta.function.arguments:
-                        tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
-
-    # If tool calls were requested, execute them
-    if finish_reason == "tool_calls" and tool_calls_acc:
-        tool_calls_list = list(tool_calls_acc.values())
-
-        # Notify the client that tool calls are being made
-        tool_names = [tc["function"]["name"] for tc in tool_calls_list]
-        yield f"data: {json.dumps({'delta': '', 'done': False, 'type': 'tool_start', 'tools': tool_names})}\n\n"
-
-        # Build the assistant message with tool_calls
-        tool_messages: list[dict[str, Any]] = [
-            {
-                "role": "assistant",
-                "content": accumulated_content or None,
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["function"]["name"],
-                            "arguments": tc["function"]["arguments"],
-                        },
-                    }
-                    for tc in tool_calls_list
-                ],
-            }
-        ]
-
-        # Execute each tool and collect results
-        tool_result_messages: list[dict[str, Any]] = []
-        for tc in tool_calls_list:
-            fn_name = tc["function"]["name"]
-            try:
-                fn_args = json.loads(tc["function"]["arguments"] or "{}")
-            except json.JSONDecodeError:
-                fn_args = {}
-
-            try:
-                if fn_name == "search_opportunities":
-                    result = _exec_search_opportunities(db, fn_args)
-                elif fn_name == "explain_match":
-                    result = _exec_explain_match(db, current_user, fn_args)
-                elif fn_name == "get_contract_status":
-                    result = _exec_get_contract_status(db, current_user, fn_args)
-                elif fn_name == "platform_help":
-                    result = _exec_platform_help(fn_args)
-                else:
-                    result = {"error": f"Unknown tool: {fn_name}"}
-            except Exception as exc:
-                result = {"error": f"Tool execution failed: {exc}"}
-
-            # Stream structured tool result to client
-            yield f"data: {json.dumps({'delta': '', 'done': False, 'type': 'tool_result', 'tool_name': fn_name, 'result': result})}\n\n"
-
-            tool_result_messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": json.dumps(result),
-            })
-
-        # Second API call: get the final assistant response given tool results
-        second_messages = full_messages + tool_messages + tool_result_messages  # type: ignore[operator]
+        content = ""
+        tool_calls_acc: dict[int, dict[str, Any]] = {}
         try:
-            second_response = client.chat.completions.create(
-                model="gemini-3.8-flash",
-                messages=second_messages,  # type: ignore[arg-type]
-                stream=True,
-            )
-            for chunk in second_response:
+            stream = client.chat.completions.create(**kwargs)
+            for chunk in stream:
                 choice = chunk.choices[0] if chunk.choices else None
-                if not choice:
+                if choice is None:
                     continue
-                if choice.delta.content:
-                    yield f"data: {json.dumps({'delta': choice.delta.content, 'done': False, 'type': 'text'})}\n\n"
+                delta = choice.delta
+                if delta.content:
+                    content += delta.content
+                    yield _text_event(delta.content)
+                for tc in delta.tool_calls or []:
+                    slot = tool_calls_acc.setdefault(
+                        tc.index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                    )
+                    if tc.id:
+                        slot["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            slot["function"]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            slot["function"]["arguments"] += tc.function.arguments
         except Exception as exc:
-            yield f"data: {json.dumps({'delta': f'Error generating final response: {exc}', 'done': False, 'type': 'text'})}\n\n"
+            # Models occasionally emit malformed tool calls (Groq 400
+            # "tool_use_failed"). Retry once without tools so the user still gets an answer.
+            if offer_tools and not content and getattr(exc, "status_code", None) == 400:
+                use_tools = False
+                continue
+            yield _text_event(_friendly_error(exc))
+            break
+
+        calls = [tc for _, tc in sorted(tool_calls_acc.items()) if tc["function"]["name"]]
+        if not calls:
+            break
+
+        for n, tc in enumerate(calls):
+            tc["id"] = tc["id"] or f"call_{round_no}_{n}"
+
+        yield _sse({"delta": "", "done": False, "type": "tool_start", "tools": [tc["function"]["name"] for tc in calls]})
+        conversation.append({"role": "assistant", "content": content or None, "tool_calls": calls})
+
+        for tc in calls:
+            name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"] or "{}")
+                if not isinstance(args, dict):
+                    args = {}
+            except json.JSONDecodeError:
+                args = {}
+            result = _run_tool(db, current_user, name, args)
+            yield _sse({"delta": "", "done": False, "type": "tool_result", "tool_name": name, "result": result})
+            conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
 
     yield "data: [DONE]\n\n"
