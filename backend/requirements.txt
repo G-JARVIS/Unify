@@ -6,4 +6,4 @@ pydantic-settings
 uvicorn
 pinecone
 sentence-transformers
-openai
+openai>=1.51.0

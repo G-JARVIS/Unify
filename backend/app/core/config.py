@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     pinecone_api_key: str = Field(..., alias="PINECONE_API_KEY", description="Pinecone API Key")
     pinecone_index_name: str = Field(..., alias="PINECONE_INDEX_NAME", description="Pinecone Index Name")
 
+    # Gemini — required for Chatbot v1 (gracefully degraded if absent)
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY", description="Gemini API Key for chatbot")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
