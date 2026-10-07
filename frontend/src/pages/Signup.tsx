@@ -22,15 +22,11 @@ const Signup = () => {
     }
     setLoading(true);
     try {
-      const success = await signup(name, email, password, company);
-      if (success) {
-        toast.success("Account created!", { description: "Welcome to UNIFY." });
-        navigate("/");
-      } else {
-        toast.error("Registration failed");
-      }
-    } catch {
-      toast.error("Registration failed. Please try again.");
+      await signup(name, email, password, company);
+      toast.success("Account created!", { description: "Welcome to UNIFY." });
+      navigate("/");
+    } catch (err) {
+      toast.error("Signup failed", { description: err instanceof Error ? err.message : "Please try again" });
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSupplyChain, createSupplyChainRequest } from "@/lib/db";
-import { MapPin, Calendar, Building2, Plus, ExternalLink, X } from "lucide-react";
+import { fetchSupplyChain, createSupplyChainRequest, fetchApplications, createApplication, ApiError } from "@/lib/db";
+import { MapPin, Calendar, Building2, Plus, ExternalLink, X, Package } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -13,13 +13,50 @@ const SupplyChain = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+
   const { data: requests = [] } = useQuery({
     queryKey: ["supply-chain"],
     queryFn: fetchSupplyChain,
   });
 
-  const handleSubmitProposal = (title: string) => {
-    toast.success("Proposal submitted!", { description: `Your proposal for "${title}" has been sent.` });
+  const appliedSet = new Set(
+    applications
+      .filter((a) => a.status !== "withdrawn")
+      .flatMap((a) => [a.opportunityId, a.opportunityTitle].filter(Boolean))
+  );
+  const availableRequests = requests.filter(
+    (r) => !appliedSet.has(r.id) && !appliedSet.has(r.title)
+  );
+
+  const handleSubmitProposal = async (req: typeof requests[0]) => {
+    try {
+      await createApplication({
+        opportunityId: req.id,
+        opportunityTitle: req.title,
+        opportunityType: "supply-chain",
+        ownerId: req.createdBy || "",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: req.sector,
+        budget: req.budget,
+        company: req.companyName,
+        location: req.location,
+        description: req.description,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["supply-chain"] });
+      toast.success("Proposal submitted!", {
+        description: `Your proposal for "${req.title}" has been sent. Track it in My Applications.`,
+      });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to submit proposal. Please try again.";
+      toast.error(msg);
+    }
   };
 
   const handlePostRequirement = async () => {
@@ -99,30 +136,37 @@ const SupplyChain = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {requests.map((req) => (
-          <div key={req.id} className="glass-card-hover rounded-xl p-5">
-            <div className="flex items-start justify-between mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-secondary/10 text-secondary">{req.sector}</span>
-              <span className="text-xs font-bold text-foreground">{req.budget}</span>
+      {availableRequests.length === 0 ? (
+        <div className="text-center py-16 glass-card rounded-xl">
+          <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-muted-foreground text-sm">No supply chain requirements available at the moment.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {availableRequests.map((req) => (
+            <div key={req.id} className="glass-card-hover rounded-xl p-5">
+              <div className="flex items-start justify-between mb-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-secondary/10 text-secondary">{req.sector}</span>
+                <span className="text-xs font-bold text-foreground">{req.budget}</span>
+              </div>
+              <h3 className="text-sm font-semibold mt-2">{req.title}</h3>
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="h-3 w-3" />{req.companyName}</p>
+              <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{req.description}</p>
+              <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{req.location}</span>
+                <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{req.deadline}</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Qty: <span className="font-medium text-foreground">{req.quantity}</span></p>
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => handleSubmitProposal(req)} className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity">Submit Proposal</button>
+                <button onClick={() => navigate(`/supply-chain/${req.id}`)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
+                  <ExternalLink className="h-3 w-3" /> View Requirement
+                </button>
+              </div>
             </div>
-            <h3 className="text-sm font-semibold mt-2">{req.title}</h3>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="h-3 w-3" />{req.companyName}</p>
-            <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{req.description}</p>
-            <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{req.location}</span>
-              <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{req.deadline}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Qty: <span className="font-medium text-foreground">{req.quantity}</span></p>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => handleSubmitProposal(req.title)} className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity">Submit Proposal</button>
-              <button onClick={() => navigate(`/supply-chain/${req.id}`)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
-                <ExternalLink className="h-3 w-3" /> View Requirement
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

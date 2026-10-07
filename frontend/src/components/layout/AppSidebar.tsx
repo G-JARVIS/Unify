@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Search, FileText, Link2, Brain, TrendingUp, Shield, MessageSquare, Bell, User, Settings, ChevronLeft, ChevronRight, Boxes, Landmark, ShieldCheck, Crown, LayoutGrid, Cpu
+  LayoutDashboard, Search, FileText, Link2, Brain, TrendingUp, Shield, MessageSquare, Bell, User, Settings, ChevronLeft, ChevronRight, Boxes, Landmark, ShieldCheck, Crown, LayoutGrid, Cpu, Inbox
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,8 +26,9 @@ const adminItems = [
 ];
 
 const bottomItems = [
-  { title: "Messages", path: "/messages", icon: MessageSquare, badge: 3 },
-  { title: "Notifications", path: "/notifications", icon: Bell, badge: 7 },
+  { title: "Messages", path: "/messages", icon: MessageSquare },
+  { title: "Notifications", path: "/notifications", icon: Bell },
+  { title: "Requests", path: "/requests", icon: Inbox },
   { title: "Subscriptions", path: "/subscriptions", icon: Crown },
   { title: "Profile", path: "/profile", icon: User },
   { title: "Settings", path: "/settings", icon: Settings },
@@ -46,8 +47,6 @@ export function AppSidebar() {
     item: (typeof navItems)[number] | (typeof adminItems)[number] | (typeof bottomItems)[number],
     isActive: boolean,
   ) => {
-    const hasBadge = "badge" in item && typeof item.badge === "number";
-
     return (
       <NavLink
         key={item.path}
@@ -58,13 +57,6 @@ export function AppSidebar() {
         {!collapsed && <span className="truncate">{item.title}</span>}
         {isActive && !collapsed && (
           <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_18px_hsl(var(--primary)/0.7)]" />
-        )}
-        {hasBadge && (
-          <span
-            className={`${collapsed ? "absolute right-2 top-1/2 -translate-y-1/2" : "ml-auto"} min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold ${isActive ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"}`}
-          >
-            {item.badge}
-          </span>
         )}
       </NavLink>
     );

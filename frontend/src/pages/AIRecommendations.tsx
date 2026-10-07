@@ -1,4 +1,5 @@
-import { opportunities } from "@/data/dummy";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchOpportunities, fetchApplications, createApplication } from "@/lib/db";
 import { Brain, Lightbulb } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -15,10 +16,33 @@ const reasons = [
 
 const AIRecommendations = () => {
   const navigate = useNavigate();
-  const sorted = [...opportunities].sort((a, b) => b.matchScore - a.matchScore);
+  const queryClient = useQueryClient();
+  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: fetchOpportunities });
+  const { data: applications = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
 
-  const handleApply = (title: string) => {
-    toast.success("Application submitted!", { description: `You applied for "${title}". Track it in My Applications.` });
+  // Only show opportunities the user hasn't applied for yet
+  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
+  const sorted = opportunities
+    .filter((o) => !appliedSet.has(o.id) && !appliedSet.has(o.title))
+    .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+
+  const handleApply = async (opportunity: (typeof opportunities)[number]) => {
+    try {
+      await createApplication({
+        opportunityId: opportunity.id,
+        opportunityTitle: opportunity.title,
+        opportunityType: opportunity.type,
+        sector: opportunity.sector,
+        budget: opportunity.budgetRange,
+        company: opportunity.postedBy,
+        location: opportunity.location,
+        description: opportunity.description,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
+      toast.success("Application submitted!", { description: `You applied for "${opportunity.title}". Track it in My Applications.` });
+    } catch (err) {
+      toast.error("Could not apply", { description: err instanceof Error ? err.message : "Unknown error" });
+    }
   };
 
   return (
@@ -41,7 +65,7 @@ const AIRecommendations = () => {
           <div>
             <p className="text-sm font-medium">AI Insight</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Based on your profile, you have the strongest match in IT & Infrastructure and FinTech sectors. We found 6 high-confidence opportunities this week.
+              Based on your profile, you have the strongest match in IT & Infrastructure and FinTech sectors. We found {sorted.filter((o) => o.matchScore >= 80).length} high-confidence opportunities available.
             </p>
           </div>
         </div>
@@ -64,11 +88,11 @@ const AIRecommendations = () => {
                 </p>
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <Brain className="h-3 w-3 text-primary" />
-                  Recommended because: {reasons[index]}
+                  Recommended because: {reasons[index % reasons.length]}
                 </p>
               </div>
               <div className="flex gap-2 md:flex-shrink-0">
-                <button onClick={() => handleApply(opportunity.title)} className="h-8 px-4 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">
+                <button onClick={() => handleApply(opportunity)} className="h-8 px-4 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">
                   Apply
                 </button>
                 <button onClick={() => navigate(`/opportunities/${opportunity.id}`)} className="h-8 px-4 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors">

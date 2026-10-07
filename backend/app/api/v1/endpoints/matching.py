@@ -1,35 +1,19 @@
 from __future__ import annotations
 
-import uuid
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlmodel import Session
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.deps import get_db
+from app.api.firebase_deps import get_firebase_user
+from app.core.firebase_auth import FirebaseUser
+from app.services import firestore
 from app.services.matching import get_coms_matches
 
 
 class MatchOpportunitiesRequest(BaseModel):
-    msme_id: uuid.UUID | None = None
+    msme_id: str | None = None  # accepted for backwards compatibility; the profile is profile/main
     top_k: int = Field(default=5, ge=1, le=50)
     sector: list[str] | None = None
     is_verified: bool | None = None
-
-    @model_validator(mode="after")
-    def validate_payload(self) -> "MatchOpportunitiesRequest":
-        if self.msme_id is None and not self.sector and self.is_verified is None:
-            raise ValueError("provide msme_id or at least one filter criterion")
-        return self
-
-    def to_filter_dict(self) -> dict[str, Any] | None:
-        filter_dict: dict[str, Any] = {}
-        if self.sector:
-            filter_dict["sector"] = self.sector
-        if self.is_verified is not None:
-            filter_dict["is_verified"] = self.is_verified
-        return filter_dict or None
 
 
 class OpportunityMatch(BaseModel):
@@ -58,41 +42,26 @@ class MatchOpportunitiesResponse(BaseModel):
 router = APIRouter(prefix="/match", tags=["matching"])
 
 
-@router.post(
-    "/opportunities",
-    response_model=MatchOpportunitiesResponse,
-    status_code=status.HTTP_200_OK,
-)
+@router.post("/opportunities", response_model=MatchOpportunitiesResponse, status_code=status.HTTP_200_OK)
 def match_opportunities(
     payload: MatchOpportunitiesRequest,
-    db: Session = Depends(get_db),
+    user: FirebaseUser = Depends(get_firebase_user),
 ) -> MatchOpportunitiesResponse:
-    if payload.msme_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="msme_id is required for COMS matching",
-        )
-
     try:
         matches = get_coms_matches(
-            db=db,
-            msme_id=payload.msme_id,
+            id_token=user.id_token,
             top_k=payload.top_k,
-            filter_dict=payload.to_filter_dict(),
+            sectors=payload.sector,
+            is_verified=payload.is_verified,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="vector store unavailable",
-        ) from exc
+    except firestore.FirestoreError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Database error: {exc}") from exc
 
     return MatchOpportunitiesResponse(
-        msme_id=str(payload.msme_id),
+        msme_id="main",
         top_k=payload.top_k,
         total_matches=len(matches),
-        matches=[OpportunityMatch.model_validate(item) for item in matches],
+        matches=[OpportunityMatch.model_validate(m) for m in matches],
     )

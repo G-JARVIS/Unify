@@ -1,15 +1,26 @@
-import { Search, FileText, Link2, Brain, Boxes, TrendingUp } from "lucide-react";
+import { Search, FileText, Link2, Brain, Boxes } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { MetricCard } from "@/components/shared/MetricCard";
 import { OpportunityCard } from "@/components/shared/OpportunityCard";
-import { dashboardMetrics, opportunities, trendData, sectorData } from "@/data/dummy";
+import { buildAnalytics } from "@/lib/analytics";
+import { useQuery } from "@tanstack/react-query";
+import { fetchOpportunities, fetchApplications, fetchCollaborations, fetchSupplyChain } from "@/lib/db";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const topOpportunities = opportunities.filter(o => o.matchScore >= 80).slice(0, 6);
+
+  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: fetchOpportunities });
+  const { data: applications = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
+  const { data: collaborations = [] } = useQuery({ queryKey: ["collaborations"], queryFn: fetchCollaborations });
+  const { data: supplyChain = [] } = useQuery({ queryKey: ["supply-chain"], queryFn: fetchSupplyChain });
+
+  const { trendData, sectorData } = buildAnalytics(opportunities, applications);
+  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
+  const availableOpportunities = opportunities.filter((o) => !appliedSet.has(o.id) && !appliedSet.has(o.title));
+  const topOpportunities = availableOpportunities.filter((o) => (o.matchScore || 0) >= 80).slice(0, 6);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-in">
@@ -24,19 +35,19 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="cursor-pointer" onClick={() => navigate("/opportunities")}>
-          <MetricCard title="Total Opportunities" value={dashboardMetrics.totalOpportunities.toLocaleString()} description="Across all sectors" icon={Search} trend={{ value: 14, positive: true }} />
+          <MetricCard title="Total Opportunities" value={availableOpportunities.length} description="Available for you" icon={Search} />
         </div>
         <div className="cursor-pointer" onClick={() => navigate("/ai-recommendations")}>
-          <MetricCard title="Recommended" value={dashboardMetrics.recommendedOpportunities} description="AI-matched for you" icon={Brain} trend={{ value: 23, positive: true }} />
+          <MetricCard title="Recommended" value={topOpportunities.length} description="AI-matched for you" icon={Brain} />
         </div>
         <div className="cursor-pointer" onClick={() => navigate("/applications")}>
-          <MetricCard title="Applications" value={dashboardMetrics.applicationsSubmitted} description="Submitted this month" icon={FileText} trend={{ value: 8, positive: true }} />
+          <MetricCard title="My Applications" value={applications.length} description="Submitted total" icon={FileText} />
         </div>
         <div className="cursor-pointer" onClick={() => navigate("/collaborations")}>
-          <MetricCard title="Collaborations" value={dashboardMetrics.activeCollaborations} description="Active partnerships" icon={Link2} />
+          <MetricCard title="Collaborations" value={collaborations.length} description="Active opportunities" icon={Link2} />
         </div>
         <div className="cursor-pointer" onClick={() => navigate("/supply-chain")}>
-          <MetricCard title="Supply Chain" value={dashboardMetrics.supplyChainRequests} description="Open requests" icon={Boxes} trend={{ value: 5, positive: true }} />
+          <MetricCard title="Supply Chain" value={supplyChain.length} description="Open requirements" icon={Boxes} />
         </div>
       </div>
 
@@ -51,11 +62,17 @@ const Dashboard = () => {
           </div>
           <button onClick={() => navigate("/ai-recommendations")} className="text-xs font-medium text-primary hover:underline">View All →</button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {topOpportunities.map((opp) => (
-            <OpportunityCard key={opp.id} opportunity={opp} />
-          ))}
-        </div>
+        {topOpportunities.length === 0 ? (
+          <div className="text-center py-10 glass-card rounded-xl">
+            <p className="text-sm text-muted-foreground">All recommended opportunities have been applied for!</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {topOpportunities.map((opp) => (
+              <OpportunityCard key={opp.id} opportunity={opp} />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

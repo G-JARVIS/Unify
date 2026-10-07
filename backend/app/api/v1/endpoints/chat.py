@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user, get_db
-from app.db.models import User
+from app.api.firebase_deps import get_firebase_user
+from app.core.firebase_auth import FirebaseUser
 from app.services.chat import stream_chat_response
-from sqlmodel import Session
 
 
 router = APIRouter(tags=["chat"])
@@ -27,8 +26,7 @@ class ChatRequest(BaseModel):
 @router.post("/stream")
 def chat_stream(
     payload: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: FirebaseUser = Depends(get_firebase_user),
 ) -> StreamingResponse:
     """
     SSE streaming chat endpoint.
@@ -46,7 +44,7 @@ def chat_stream(
     ]
 
     return StreamingResponse(
-        stream_chat_response(db=db, current_user=current_user, messages=messages),
+        stream_chat_response(current_user=current_user, messages=messages),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

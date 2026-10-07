@@ -1,10 +1,18 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { MapPin, Calendar, Building2, ArrowLeft, Bookmark, BookmarkCheck, Share2, FileText, Clock } from "lucide-react";
+import { MapPin, Calendar, Building2, ArrowLeft, Bookmark, BookmarkCheck, Share2, FileText, Clock, CheckCircle2, BadgeCheck } from "lucide-react";
 import { MatchScoreBar } from "@/components/shared/MatchScoreBar";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchOpportunity, toggleSaveOpportunity, createApplication } from "@/lib/db";
+import { fetchOpportunity, toggleSaveOpportunity, createApplication, fetchApplications, ApiError } from "@/lib/db";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const OpportunityDetail = () => {
   const { id } = useParams();
@@ -17,8 +25,18 @@ const OpportunityDetail = () => {
     enabled: !!id,
   });
 
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+
+  const alreadyApplied = myApplications.some(
+    (a) => (a.opportunityId === id || a.opportunityTitle === opportunity?.title) && a.status !== "withdrawn"
+  );
+
   const [saved, setSaved] = useState(false);
-  const [applied, setApplied] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   if (isLoading) {
     return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading...</div>;
@@ -36,18 +54,30 @@ const OpportunityDetail = () => {
   }
 
   const handleApply = async () => {
-    setApplied(true);
-    await createApplication({
-      opportunityTitle: opportunity.title,
-      status: "pending",
-      appliedDate: new Date().toISOString().split("T")[0],
-      sector: opportunity.sector,
-      budget: opportunity.budgetRange,
-    });
-    queryClient.invalidateQueries({ queryKey: ["applications"] });
-    toast.success("Application submitted!", {
-      description: `You applied for "${opportunity.title}". Track it in My Applications.`,
-    });
+    setIsSubmitting(true);
+    try {
+      await createApplication({
+        opportunityId: opportunity.id,
+        opportunityTitle: opportunity.title,
+        opportunityType: opportunity.type || "opportunity",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: opportunity.sector,
+        budget: opportunity.budgetRange,
+        company: opportunity.postedBy,
+        location: opportunity.location,
+        description: opportunity.description,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+      setShowSuccessModal(true);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to submit application. Please try again.";
+      toast.error(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -146,15 +176,20 @@ const OpportunityDetail = () => {
       </div>
 
       <div className="flex gap-3">
-        <button
-          onClick={handleApply}
-          disabled={applied}
-          className={`flex-1 h-11 rounded-lg text-sm font-semibold transition-all ${
-            applied ? "bg-success/20 text-success cursor-default" : "gradient-primary text-primary-foreground hover:opacity-90"
-          }`}
-        >
-          {applied ? "✓ Application Submitted" : "Apply for Opportunity"}
-        </button>
+        {alreadyApplied ? (
+          <div className="flex-1 h-11 rounded-lg bg-success/10 text-success text-sm font-semibold flex items-center justify-center gap-2 border border-success/20 cursor-default">
+            <BadgeCheck className="h-4 w-4" />
+            Application Already Submitted
+          </div>
+        ) : (
+          <button
+            onClick={handleApply}
+            disabled={isSubmitting}
+            className="flex-1 h-11 rounded-lg gradient-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all"
+          >
+            {isSubmitting ? "Submitting Application..." : "Apply for Opportunity"}
+          </button>
+        )}
         <button onClick={handleSave} className="h-11 px-6 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors">
           {saved ? "Saved ✓" : "Save"}
         </button>
@@ -162,6 +197,34 @@ const OpportunityDetail = () => {
           Share
         </button>
       </div>
+
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md text-center">
+          <DialogHeader className="flex flex-col items-center justify-center text-center">
+            <div className="h-12 w-12 rounded-full bg-success/20 text-success flex items-center justify-center mb-3">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold">Application Submitted Successfully!</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2">
+              Your application for <span className="font-semibold text-foreground">"{opportunity.title}"</span> has been saved and submitted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <button
+              onClick={() => navigate("/applications")}
+              className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              Track in My Applications
+            </button>
+            <button
+              onClick={() => navigate("/opportunities")}
+              className="flex-1 h-10 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              Back to Opportunities
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

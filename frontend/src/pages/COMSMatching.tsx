@@ -18,12 +18,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { matching, profiles, contracts, tokenStore, APIError } from "@/lib/api";
+import { matching, profiles, ApiError } from "@/lib/api";
+import { createApplication, fetchOpportunities } from "@/lib/db";
+import { useAuth } from "@/contexts/AuthContext";
 import type { OpportunityMatch, MSMEProfile, MatchFilters } from "@/types/api";
-
-// ─── Hardcoded seed MSME id for demo (matches seeded data) ───
-// In a real flow this comes from profiles.getMSMEProfile()
-const DEMO_MSME_ID_FALLBACK = "";
 
 // ─── Tag Styling helpers ──────────────────────────────────────
 
@@ -197,38 +195,30 @@ function SkeletonCard() {
 function MatchCard({
   match,
   index,
-  msmeId,
 }: {
   match: OpportunityMatch;
   index: number;
-  msmeId?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
   const handleApply = async () => {
-    if (!msmeId) {
-      toast.error("Profile required to apply.");
-      return;
-    }
     setIsApplying(true);
     try {
-      await contracts.createContract({
-        opportunity_id: match.opportunity_id,
-        msme_id: msmeId,
-        agreed_amount: 100000, // Placeholder
-        milestones: [
-          { title: "Project Kickoff", payout_percentage: 20, due_date: new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0] },
-          { title: "Midpoint Review", payout_percentage: 30, due_date: new Date(Date.now() + 86400000 * 30).toISOString().split('T')[0] },
-          { title: "Final Delivery", payout_percentage: 50, due_date: new Date(Date.now() + 86400000 * 60).toISOString().split('T')[0] }
-        ]
+      await createApplication({
+        opportunityId: match.opportunity_id,
+        opportunityTitle: match.title,
+        opportunityType: match.opportunity_type,
+        sector: match.sector,
+        company: match.organization,
+        message: `Applied via COMS Matching (score ${Math.round(match.coms_score * 100)}%).`,
       });
-      toast.success("Interest expressed!", {
-        description: `Your application for "${match.title}" has been queued.`,
+      toast.success("Application submitted!", {
+        description: `Your application for "${match.title}" is now under My Applications.`,
       });
     } catch (err) {
       toast.error("Failed to apply", {
-        description: err instanceof APIError ? err.detail : "Unknown error",
+        description: err instanceof ApiError ? err.message : "Unknown error",
       });
     } finally {
       setIsApplying(false);
@@ -372,22 +362,18 @@ function MatchCard({
   );
 }
 
-// ─── Known sectors from seeded data ──────────────────────────
-
-const SECTORS = [
-  "All Sectors",
-  "Technology",
-  "Logistics",
-  "Renewable Energy",
-  "Manufacturing",
-  "Finance",
-  "Healthcare",
-  "Agriculture",
-];
-
 // ─── Main Dashboard Page ──────────────────────────────────────
 
 const COMSMatchingDashboard = () => {
+  const { isAuthenticated } = useAuth();
+  const [sectors, setSectors] = useState<string[]>(["All Sectors"]);
+
+  // Sector filter options come from the live opportunities in Firestore
+  useEffect(() => {
+    fetchOpportunities().then((opps) =>
+      setSectors(["All Sectors", ...Array.from(new Set(opps.map((o) => o.sector).filter(Boolean))).sort()]),
+    );
+  }, []);
   const [matches, setMatches] = useState<OpportunityMatch[]>([]);
   const [profile, setProfile] = useState<MSMEProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -401,8 +387,7 @@ const COMSMatchingDashboard = () => {
 
   // ── Load profile on mount ──
   useEffect(() => {
-    const token = tokenStore.get();
-    if (!token) {
+    if (!isAuthenticated) {
       setProfileLoading(false);
       return;
     }
@@ -410,9 +395,7 @@ const COMSMatchingDashboard = () => {
       .getMSMEProfile()
       .then(setProfile)
       .catch((err) => {
-        if (err instanceof APIError && (err.status === 404 || err.status === 401)) {
-          // No profile yet or invalid token — show empty state
-        } else {
+        if (!(err instanceof ApiError && (err.status === 404 || err.status === 401))) {
           console.warn("Profile fetch failed:", err);
         }
       })
@@ -421,9 +404,7 @@ const COMSMatchingDashboard = () => {
 
   // ── Run matching ──
   const runMatching = useCallback(async () => {
-    const msmeId = profile?.id ?? DEMO_MSME_ID_FALLBACK;
-
-    if (!msmeId) {
+    if (!profile) {
       setError(
         "No MSME profile found. Please complete your profile before running COMS matching.",
       );
@@ -442,7 +423,6 @@ const COMSMatchingDashboard = () => {
 
     try {
       const result = await matching.getOpportunitiesMatch(
-        msmeId,
         topK,
         filters,
       );
@@ -457,13 +437,13 @@ const COMSMatchingDashboard = () => {
         });
       }
     } catch (err) {
-      if (err instanceof APIError) {
+      if (err instanceof ApiError) {
         if (err.status === 401) {
           setError("Your session has expired. Please log in again.");
         } else if (err.status === 404) {
           setError("MSME profile not found on the server. Please re-save your profile.");
         } else {
-          setError(err.detail);
+          setError(err.message);
         }
       } else {
         setError("An unexpected error occurred. Is the backend running?");
@@ -481,7 +461,7 @@ const COMSMatchingDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileLoading]);
 
-  const isLoggedIn = Boolean(tokenStore.get());
+  const isLoggedIn = isAuthenticated;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
@@ -493,8 +473,8 @@ const COMSMatchingDashboard = () => {
             COMS Matching Engine
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Capability–Opportunity Matching Score · powered by Pinecone + vector
-            embeddings
+            Capability–Opportunity Matching Score · semantic embeddings over your
+            live Firestore data
           </p>
         </div>
 
@@ -510,8 +490,7 @@ const COMSMatchingDashboard = () => {
                 {profile.company_name}
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                Maturity: {profile.digital_maturity_score} · Fairness:{" "}
-                {Math.round(profile.fairness_score * 100)}%
+                {profile.industry ?? "Company profile"} · {profile.capabilities.length} capabilities
               </p>
             </div>
           </div>
@@ -565,7 +544,7 @@ const COMSMatchingDashboard = () => {
                 onChange={(e) => setSelectedSector(e.target.value)}
                 className="w-full h-9 rounded-lg border border-border/60 bg-card/60 px-3 pr-8 text-xs font-medium text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
               >
-                {SECTORS.map((s) => (
+                {sectors.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -675,7 +654,7 @@ const COMSMatchingDashboard = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {matches.map((m, i) => (
-              <MatchCard key={m.opportunity_id} match={m} index={i} msmeId={profile?.id} />
+              <MatchCard key={m.opportunity_id} match={m} index={i} />
             ))}
           </div>
         </>

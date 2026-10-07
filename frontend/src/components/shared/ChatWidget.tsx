@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageSquare, X, Send, Bot, User, Loader2, AlertCircle, ChevronDown, Sparkles, Search, FileText, HelpCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { tokenStore } from "@/lib/api";
+import { AI_URL, authHeaders } from "@/lib/api";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,6 @@ interface ChatMessage {
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api/v1";
 
 const SUGGESTED_PROMPTS = [
   { icon: Search, label: "Find opportunities", text: "Find me procurement opportunities in the energy sector" },
@@ -215,14 +214,13 @@ export function ChatWidget() {
 
       // Start SSE fetch
       abortRef.current = new AbortController();
-      const token = tokenStore.get();
 
       try {
-        const response = await fetch(`${API_BASE}/chat/stream`, {
+        const response = await fetch(`${AI_URL}/chat/stream`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(await authHeaders()),
           },
           body: JSON.stringify({ messages: historyMessages }),
           signal: abortRef.current.signal,

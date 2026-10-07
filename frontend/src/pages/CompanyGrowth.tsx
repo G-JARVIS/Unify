@@ -1,16 +1,8 @@
-import { sectorData, trendData, fairnessData } from "@/data/dummy";
+import { useMarketAnalytics } from "@/lib/analytics";
 import { TrendingUp, BarChart3, Activity, Sparkles } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from "recharts";
 import type { TooltipProps } from "recharts";
 
-const companyGrowthData = [
-  { month: "Oct", revenue: 12, projects: 3, clients: 8 },
-  { month: "Nov", revenue: 15, projects: 4, clients: 10 },
-  { month: "Dec", revenue: 14, projects: 3, clients: 11 },
-  { month: "Jan", revenue: 19, projects: 5, clients: 14 },
-  { month: "Feb", revenue: 23, projects: 6, clients: 16 },
-  { month: "Mar", revenue: 28, projects: 7, clients: 19 },
-];
 
 function PremiumChartTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
@@ -33,7 +25,12 @@ function PremiumChartTooltip({ active, payload, label }: TooltipProps<number, st
   );
 }
 
-const CompanyGrowth = () => (
+const CompanyGrowth = () => {
+  const { opportunities, applications, sectorData, trendData, fairnessData, growthData } = useMarketAnalytics();
+  const accepted = applications.filter((a) => a.status === "accepted").length;
+  const pending = applications.filter((a) => a.status === "pending").length;
+
+  return (
   <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
     <div>
       <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -45,27 +42,27 @@ const CompanyGrowth = () => (
 
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div className="premium-card-hover p-5 text-center">
-        <p className="text-sm text-muted-foreground font-medium">Revenue Growth</p>
-        <p className="text-3xl font-bold mt-2 text-emerald-400">+42%</p>
-        <p className="text-xs text-muted-foreground mt-1">vs last quarter</p>
+        <p className="text-sm text-muted-foreground font-medium">Applications Submitted</p>
+        <p className="text-3xl font-bold mt-2 text-emerald-400">{applications.length}</p>
+        <p className="text-xs text-muted-foreground mt-1">{pending} pending review</p>
       </div>
       <div className="premium-card-hover p-5 text-center">
-        <p className="text-sm text-muted-foreground font-medium">Projects Won</p>
-        <p className="text-3xl font-bold mt-2 text-primary">7</p>
-        <p className="text-xs text-muted-foreground mt-1">This quarter</p>
+        <p className="text-sm text-muted-foreground font-medium">Applications Accepted</p>
+        <p className="text-3xl font-bold mt-2 text-primary">{accepted}</p>
+        <p className="text-xs text-muted-foreground mt-1">{applications.length ? Math.round((accepted / applications.length) * 100) : 0}% success rate</p>
       </div>
       <div className="premium-card-hover p-5 text-center">
-        <p className="text-sm text-muted-foreground font-medium">Client Base</p>
-        <p className="text-3xl font-bold mt-2 text-secondary">19</p>
-        <p className="text-xs text-muted-foreground mt-1">Active clients</p>
+        <p className="text-sm text-muted-foreground font-medium">Open Opportunities</p>
+        <p className="text-3xl font-bold mt-2 text-secondary">{opportunities.length}</p>
+        <p className="text-xs text-muted-foreground mt-1">On the platform now</p>
       </div>
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="premium-card p-5">
-        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Company Revenue Trend (₹ Lakhs)</h3>
+        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Your Applications by Month</h3>
         <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={companyGrowthData} margin={{ left: 8, right: 8 }}>
+          <AreaChart data={growthData} margin={{ left: 8, right: 8 }}>
             <defs>
               <linearGradient id="growthGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
@@ -76,14 +73,14 @@ const CompanyGrowth = () => (
             <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} />
             <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} />
             <Tooltip content={<PremiumChartTooltip />} cursor={{ stroke: "hsl(var(--primary) / 0.12)" }} />
-            <Area type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" fill="url(#growthGradient)" strokeWidth={2.5} dot={false} name="Revenue" />
-            <Line type="monotone" dataKey="projects" stroke="hsl(var(--secondary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Projects" />
+            <Area type="monotone" dataKey="applications" stroke="hsl(var(--primary))" fill="url(#growthGradient)" strokeWidth={2.5} dot={false} name="Applications" />
+            <Line type="monotone" dataKey="accepted" stroke="hsl(var(--secondary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} name="Accepted" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
       <div className="premium-card p-5">
-        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-primary" />Sector Growth Rates (%)</h3>
+        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-primary" />Opportunities by Sector</h3>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={sectorData} layout="vertical" margin={{ left: 8, right: 8 }}>
             <defs>
@@ -96,7 +93,7 @@ const CompanyGrowth = () => (
             <XAxis type="number" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} />
             <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={86} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} />
             <Tooltip content={<PremiumChartTooltip />} cursor={{ fill: "hsl(var(--primary) / 0.06)" }} />
-            <Bar dataKey="growth" fill="url(#sectorGrowthGradient)" radius={[0, 10, 10, 0]} barSize={14} name="Growth %" />
+            <Bar dataKey="opportunities" fill="url(#sectorGrowthGradient)" radius={[0, 10, 10, 0]} barSize={14} name="Opportunities" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -159,7 +156,7 @@ const CompanyGrowth = () => (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">MSME Participation</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Applicant Diversity</p>
               <p className="mt-2 text-2xl font-semibold">{fairnessData.msmeParticipationRate}%</p>
             </div>
             <div className="rounded-xl border border-border/60 bg-background/60 p-3">
@@ -187,5 +184,6 @@ const CompanyGrowth = () => (
 
   </div>
 );
+};
 
 export default CompanyGrowth;

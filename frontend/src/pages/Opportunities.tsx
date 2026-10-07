@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchOpportunities } from "@/lib/db";
-import { sectorData, trendData, fairnessData } from "@/data/dummy";
+import { fetchOpportunities, fetchApplications } from "@/lib/db";
+import { buildAnalytics } from "@/lib/analytics";
 import { OpportunityCard } from "@/components/shared/OpportunityCard";
 import { Search, TrendingUp, Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -40,7 +40,16 @@ const Opportunities = () => {
     queryFn: fetchOpportunities,
   });
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+  const { sectorData, trendData, fairnessData } = buildAnalytics(opportunities, applications);
+
+  // Hide opportunities the user has already applied for
+  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
   const filtered = opportunities.filter((opportunity) => {
+    if (appliedSet.has(opportunity.id) || appliedSet.has(opportunity.title)) return false;
     const matchesSearch = opportunity.title.toLowerCase().includes(searchQuery.toLowerCase()) || opportunity.sector.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = selectedType === "all" || opportunity.type === selectedType;
     return matchesSearch && matchesType;

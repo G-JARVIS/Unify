@@ -1,20 +1,26 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { fetchApplication } from "@/lib/db";
 import { ArrowLeft, Clock, CheckCircle, AlertCircle, Trophy, Calendar, IndianRupee, Building2, FileText, Target, Users } from "lucide-react";
 import { toast } from "sonner";
-
-const applications = [
-  { id: "1", opportunityTitle: "Smart City Infrastructure Development", status: "shortlisted", appliedDate: "2026-03-10", sector: "IT & Infrastructure", budget: "₹4Cr - ₹16Cr", description: "Development of smart city infrastructure including IoT sensors, traffic management systems, and citizen engagement platforms.", progress: 75, nextStep: "Technical presentation scheduled for March 28, 2026", company: "SmartCity Corp", location: "Multiple Cities" },
-  { id: "2", opportunityTitle: "Agricultural Supply Chain Digitization", status: "pending", appliedDate: "2026-03-12", sector: "Agriculture & Tech", budget: "₹1.6Cr - ₹6.5Cr", description: "Digital transformation of agricultural supply chains with blockchain tracking and automated logistics.", progress: 25, nextStep: "Initial screening in progress", company: "AgriChain Ltd", location: "Pan India" },
-  { id: "3", opportunityTitle: "E-Commerce Logistics Integration", status: "reviewed", appliedDate: "2026-03-08", sector: "Logistics", budget: "₹80L - ₹3.2Cr", description: "Integration of e-commerce platforms with advanced logistics and delivery management systems.", progress: 50, nextStep: "Waiting for final decision", company: "LogiTech Solutions", location: "Mumbai" },
-  { id: "4", opportunityTitle: "Water Treatment Plant Modernization", status: "rejected", appliedDate: "2026-02-28", sector: "Infrastructure", budget: "₹8Cr - ₹24Cr", description: "Modernization of water treatment facilities with advanced filtration and monitoring systems.", progress: 0, nextStep: "Application rejected", company: "WaterPure Inc", location: "Delhi" },
-  { id: "5", opportunityTitle: "Mobile Banking Platform Development", status: "accepted", appliedDate: "2026-02-20", sector: "FinTech", budget: "₹2.4Cr - ₹7.2Cr", description: "Development of secure mobile banking platform with advanced security features and user-friendly interface.", progress: 100, nextStep: "Contract signing scheduled", company: "FinSecure Bank", location: "Bengaluru", contractValue: "₹4.8Cr", startDate: "2026-04-01", duration: "12 months" },
-];
 
 const ApplicationDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const application = applications.find(a => a.id === id);
+  const { data: application, isLoading } = useQuery({
+    queryKey: ["application", id],
+    queryFn: () => fetchApplication(id!),
+    enabled: !!id,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <p className="text-sm text-muted-foreground animate-pulse">Loading application details...</p>
+      </div>
+    );
+  }
 
   if (!application) {
     return (
@@ -102,18 +108,18 @@ const ApplicationDetail = () => {
               <div>
                 <div className="flex justify-between text-sm mb-2">
                   <span>Progress</span>
-                  <span>{application.progress}%</span>
+                  <span>{application.progress ?? 25}%</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
                   <div
                     className="bg-primary h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${application.progress}%` }}
+                    style={{ width: `${application.progress ?? 25}%` }}
                   ></div>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Clock className="h-4 w-4" />
-                <span><strong>Next Step:</strong> {application.nextStep}</span>
+                <span><strong>Next Step:</strong> {application.nextStep || "Initial screening in progress"}</span>
               </div>
             </div>
           </div>
@@ -130,13 +136,13 @@ const ApplicationDetail = () => {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Sector</p>
-                <p className="text-sm font-semibold">{application.sector}</p>
+                <p className="text-sm font-semibold">{application.sector || "General"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Budget Range</p>
                 <p className="text-lg font-bold text-primary flex items-center gap-2">
                   <IndianRupee className="h-4 w-4" />
-                  {application.budget.replace("₹", "")}
+                  {(application.budget || "N/A").replace("₹", "")}
                 </p>
               </div>
               <div>
@@ -152,12 +158,12 @@ const ApplicationDetail = () => {
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Company</p>
                 <p className="text-sm font-semibold flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-primary" />
-                  {application.company}
+                  {application.company || "Government / Enterprise Partner"}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-1">Location</p>
-                <p className="text-sm font-semibold">{application.location}</p>
+                <p className="text-sm font-semibold">{application.location || "Pan India"}</p>
               </div>
               {application.status === "accepted" && (
                 <>

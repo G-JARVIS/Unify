@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 import json
-import uuid
+from datetime import date
 from typing import Any, Generator
 
-from sqlalchemy import or_
-from sqlmodel import Session, select
-
-from app.db.models import Contract, Milestone, MSMEProfile, Opportunity, User, UserRole
-
+from app.core.firebase_auth import FirebaseUser
+from app.services import firestore
+from app.services.matching import (
+    embed_profile,
+    load_profile,
+    score_opportunity,
+)
 
 # ---------------------------------------------------------------------------
 # Tool schemas exposed to the LLM
 # ---------------------------------------------------------------------------
+
+_CATEGORIES = {
+    "opportunities": ("opportunities", "postedBy"),
+    "tenders": ("governmentTenders", "department"),
+    "contracts": ("governmentContracts", "department"),
+    "supply_chain": ("supplyChainRequests", "companyName"),
+    "collaborations": ("collaborations", "companyName"),
+}
 
 CHAT_TOOLS: list[dict[str, Any]] = [
     {
@@ -20,28 +30,23 @@ CHAT_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "search_opportunities",
             "description": (
-                "Search for procurement opportunities on the UNIFY platform. "
-                "Use this when the user asks about finding tenders, contracts, "
-                "supply-chain openings, or collaboration opportunities."
+                "Search the UNIFY database for procurement opportunities: general opportunities, government "
+                "tenders, government contracts, private supply-chain requests and collaboration projects. "
+                "Use it whenever the user asks to find or list anything open on the platform."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {
+                    "query": {"type": "string", "description": "Free-text keywords, e.g. 'solar' or 'road safety'. Empty for all."},
+                    "category": {
                         "type": "string",
-                        "description": "Free-text search query (e.g. 'solar energy contracts in Maharashtra').",
+                        "enum": ["all", *_CATEGORIES],
+                        "description": "Which listing to search. Default 'all'.",
                     },
-                    "sector": {
-                        "type": "string",
-                        "description": "Optional sector filter (e.g. 'Energy', 'Healthcare').",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (1–10). Default 5.",
-                        "default": 5,
-                    },
+                    "sector": {"type": "string", "description": "Optional sector filter (e.g. 'Energy', 'Healthcare')."},
+                    "limit": {"type": "integer", "description": "Max results (1-10). Default 5."},
                 },
-                "required": ["query"],
+                "required": [],
             },
         },
     },
@@ -50,43 +55,36 @@ CHAT_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "explain_match",
             "description": (
-                "Explain why a specific opportunity is (or is not) a good match "
-                "for the current MSME user. Returns COMS score breakdown, "
-                "vector similarity, and capability overlap tags. "
-                "Use this when the user asks 'why am I ranked here?' or "
-                "'how well do I match this opportunity?'."
+                "Explain how well the user's company matches one opportunity: COMS score, semantic similarity "
+                "and matching capabilities. Use for 'why is this a good match?' or 'how well do I fit X?'."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "opportunity_id": {
-                        "type": "string",
-                        "description": "UUID of the opportunity to explain.",
-                    },
+                    "opportunity": {"type": "string", "description": "Opportunity id or (part of) its title."},
                 },
-                "required": ["opportunity_id"],
+                "required": ["opportunity"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "get_contract_status",
-            "description": (
-                "Retrieve the current status and milestone progress of a contract. "
-                "Use this when the user asks about a specific contract, its stage, "
-                "or which milestones are pending/completed."
-            ),
+            "name": "get_my_applications",
+            "description": "List the signed-in user's applications and their status (pending, accepted, rejected, withdrawn).",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "contract_id": {
-                        "type": "string",
-                        "description": "UUID of the contract.",
-                    },
-                },
-                "required": ["contract_id"],
+                "properties": {"status": {"type": "string", "description": "Optional status filter."}},
+                "required": [],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_company_profile",
+            "description": "Get the company profile: industry, location, capabilities, certifications and past projects.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
@@ -94,20 +92,15 @@ CHAT_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "platform_help",
             "description": (
-                "Answer platform help and FAQ questions about UNIFY, such as "
-                "how matching works, what COMS/VRA means, subscription tiers, "
-                "how to apply for an opportunity, or how mediation works."
+                "Answer how-to / FAQ questions about UNIFY: COMS matching, fairness (VRA), subscriptions, "
+                "how to apply, mediation, digital maturity."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": (
-                            "Help topic. One of: coms_matching, vra_fairness, "
-                            "subscriptions, how_to_apply, mediation, contracts, "
-                            "digital_maturity, general."
-                        ),
+                        "description": "One of: coms_matching, vra_fairness, subscriptions, how_to_apply, mediation, digital_maturity, general.",
                     },
                 },
                 "required": ["topic"],
@@ -118,270 +111,160 @@ CHAT_TOOLS: list[dict[str, Any]] = [
 
 
 # ---------------------------------------------------------------------------
-# Tool executors
+# Tool executors (all data comes from Firestore)
 # ---------------------------------------------------------------------------
 
-def _exec_search_opportunities(
-    db: Session, args: dict[str, Any]
-) -> dict[str, Any]:
-    query: str = args.get("query", "")
-    sector: str | None = args.get("sector")
-    limit: int = min(int(args.get("limit", 5)), 10)
-
-    stmt = select(Opportunity)
-    if sector:
-        stmt = stmt.where(Opportunity.sector.ilike(f"%{sector.strip()}%"))
-    if query:
-        pattern = f"%{query.strip()}%"
-        stmt = stmt.where(
-            or_(
-                Opportunity.title.ilike(pattern),
-                Opportunity.description.ilike(pattern),
-                Opportunity.organization.ilike(pattern),
-                Opportunity.sector.ilike(pattern),
-            )
-        )
-    stmt = stmt.order_by(Opportunity.deadline.asc()).limit(limit)
-    results = db.exec(stmt).all()
-
-    if not results:
-        return {"found": 0, "opportunities": [], "message": "No matching opportunities found."}
-
+def _summarise(category: str, doc: dict[str, Any]) -> dict[str, Any]:
+    _, owner_field = _CATEGORIES[category]
     return {
-        "found": len(results),
-        "opportunities": [
+        "id": doc["id"],
+        "category": category,
+        "title": doc.get("title") or doc.get("projectTitle"),
+        "organization": doc.get(owner_field),
+        "sector": doc.get("sector"),
+        "location": doc.get("location"),
+        "budget": doc.get("budgetRange") or doc.get("budget"),
+        "deadline": doc.get("deadline") or None,
+        "type": doc.get("type"),
+        "verified": doc.get("verified"),
+        "status": doc.get("status"),
+        "description": (doc.get("description") or "")[:200],
+    }
+
+
+def _exec_search_opportunities(user: FirebaseUser, args: dict[str, Any]) -> dict[str, Any]:
+    query = str(args.get("query") or "").lower().split()
+    sector = str(args.get("sector") or "").lower()
+    category = str(args.get("category") or "all")
+    try:
+        limit = max(1, min(int(args.get("limit") or 5), 10))
+    except (TypeError, ValueError):
+        limit = 5
+    categories = list(_CATEGORIES) if category == "all" or category not in _CATEGORIES else [category]
+
+    results: list[dict[str, Any]] = []
+    for cat in categories:
+        for doc in firestore.list_docs(_CATEGORIES[cat][0], user.id_token):
+            haystack = " ".join(str(doc.get(k, "")) for k in ("title", "projectTitle", "description", "sector", "location", "postedBy", "department", "companyName", "requiredSkills")).lower()
+            if sector and sector not in str(doc.get("sector", "")).lower():
+                continue
+            if query and not all(word in haystack for word in query):
+                continue
+            results.append(_summarise(cat, doc))
+    results.sort(key=lambda r: (r["deadline"] is None, r["deadline"] or ""))
+    return {"found": len(results), "showing": min(limit, len(results)), "results": results[:limit]}
+
+
+def _exec_explain_match(user: FirebaseUser, args: dict[str, Any]) -> dict[str, Any]:
+    needle = str(args.get("opportunity") or "").strip().lower()
+    profile = load_profile(user.id_token)
+    if profile is None:
+        return {"error": "No company profile found. Complete the Profile page to see match scores."}
+    opportunities = firestore.list_docs("opportunities", user.id_token)
+    opp = next((o for o in opportunities if str(o["id"]).lower() == needle), None) or next(
+        (o for o in opportunities if needle and needle in str(o.get("title", "")).lower()), None
+    )
+    if opp is None:
+        return {"error": f"No opportunity matching '{args.get('opportunity')}' was found."}
+
+    m = score_opportunity(profile, embed_profile(profile), opp)
+    tags = [t.removeprefix("capability:") for t in m["explainability_tags"] if t.startswith("capability:")]
+    return {
+        **m,
+        "your_company": profile.get("companyName"),
+        "matched_capabilities": tags,
+        "explanation": (
+            f"COMS {m['coms_score']:.0%} = 70% semantic similarity ({m['vector_similarity']:.0%}) "
+            f"+ 30% capability overlap ({m['capability_overlap']:.0%}). "
+            + (f"Shared keywords: {', '.join(tags)}." if tags else "No direct keyword overlap.")
+        ),
+    }
+
+
+def _exec_get_my_applications(user: FirebaseUser, args: dict[str, Any]) -> dict[str, Any]:
+    wanted = str(args.get("status") or "").lower()
+    apps = [
+        a for a in firestore.list_docs("applications", user.id_token)
+        if user.uid in (a.get("createdBy"), a.get("applicantId")) and (not wanted or str(a.get("status", "")).lower() == wanted)
+    ]
+    apps.sort(key=lambda a: str(a.get("createdAt", "")), reverse=True)
+    return {
+        "count": len(apps),
+        "applications": [
             {
-                "id": str(opp.id),
-                "title": opp.title,
-                "organization": opp.organization,
-                "sector": opp.sector,
-                "type": opp.type.value,
-                "deadline": str(opp.deadline),
-                "is_verified": opp.is_verified,
-                "budget_min": float(opp.budget_min) if opp.budget_min else None,
-                "budget_max": float(opp.budget_max) if opp.budget_max else None,
+                "id": a["id"],
+                "opportunity": a.get("opportunityTitle"),
+                "organization": a.get("company"),
+                "status": a.get("status"),
+                "applied_date": a.get("appliedDate"),
+                "budget": a.get("budget"),
             }
-            for opp in results
+            for a in apps[:15]
         ],
     }
 
 
-def _exec_explain_match(
-    db: Session, current_user: User, args: dict[str, Any]
-) -> dict[str, Any]:
-    opp_id_str: str = args.get("opportunity_id", "")
-    try:
-        opp_id = uuid.UUID(opp_id_str)
-    except ValueError:
-        return {"error": f"Invalid opportunity ID: {opp_id_str}"}
-
-    opportunity = db.get(Opportunity, opp_id)
-    if not opportunity:
-        return {"error": f"Opportunity {opp_id_str} not found."}
-
-    # Get MSME profile for the current user
-    profile = None
-    if current_user.role == UserRole.MSME:
-        profile = db.exec(
-            select(MSMEProfile).where(MSMEProfile.user_id == current_user.id)
-        ).one_or_none()
-
-    if not profile:
-        return {
-            "opportunity_title": opportunity.title,
-            "message": "No MSME profile found. Please complete your profile to see match scores.",
-        }
-
-    # Run COMS matching inline for a single opportunity
-    try:
-        from app.services.matching import (
-            _capability_overlap_score,
-            _extract_vector,
-            _flatten_text_values,
-            _normalize_vector_score,
-        )
-        import math
-
-        vector_score = 0.0
-        try:
-            from app.services.embedding import generate_embedding
-
-            profile_vector = _extract_vector(profile.capabilities)
-            if not profile_vector:
-                text_parts = _flatten_text_values(profile.capabilities)
-                profile_vector = generate_embedding(" ".join(text_parts) if text_parts else profile.company_name)
-            opp_vector = generate_embedding(
-                " ".join([opportunity.title, opportunity.description, opportunity.sector, opportunity.organization])
-            )
-            dot = sum(a * b for a, b in zip(profile_vector, opp_vector))
-            norm = math.sqrt(sum(a * a for a in profile_vector)) * math.sqrt(sum(b * b for b in opp_vector))
-            if norm:
-                vector_score = _normalize_vector_score(dot / norm)
-        except Exception:
-            vector_score = 0.0  # embeddings unavailable: fall back to keyword overlap only
-
-        capability_score, capability_tags = _capability_overlap_score(profile, opportunity)
-        coms_score = round((0.7 * vector_score) + (0.3 * capability_score), 4)
-
-        return {
-            "opportunity_id": str(opportunity.id),
-            "opportunity_title": opportunity.title,
-            "organization": opportunity.organization,
-            "sector": opportunity.sector,
-            "your_company": profile.company_name,
-            "coms_score": coms_score,
-            "vector_similarity": round(vector_score, 4),
-            "capability_overlap": round(capability_score, 4),
-            "fairness_score": profile.fairness_score,
-            "matched_capability_tags": capability_tags,
-            "explanation": (
-                f"Your COMS score of {coms_score:.2%} is computed as "
-                f"70% semantic similarity ({vector_score:.2%}) + "
-                f"30% capability overlap ({capability_score:.2%}). "
-                + (f"Matched capabilities: {', '.join(capability_tags)}." if capability_tags else "No direct capability keywords matched.")
-            ),
-        }
-    except Exception as exc:
-        return {"error": f"Could not compute match score: {exc}"}
-
-
-def _exec_get_contract_status(
-    db: Session, current_user: User, args: dict[str, Any]
-) -> dict[str, Any]:
-    contract_id_str: str = args.get("contract_id", "")
-    try:
-        contract_id = uuid.UUID(contract_id_str)
-    except ValueError:
-        return {"error": f"Invalid contract ID: {contract_id_str}"}
-
-    contract = db.get(Contract, contract_id)
-    if not contract:
-        return {"error": f"Contract {contract_id_str} not found."}
-
-    # Enforce ownership: MSME can only see their own contracts
-    if current_user.role == UserRole.MSME:
-        profile = db.exec(
-            select(MSMEProfile).where(MSMEProfile.user_id == current_user.id)
-        ).one_or_none()
-        if not profile or contract.msme_id != profile.id:
-            return {"error": "You do not have permission to view this contract."}
-
-    milestones = db.exec(
-        select(Milestone).where(Milestone.contract_id == contract.id)
-    ).all()
-
-    completed = sum(1 for m in milestones if m.is_completed)
-    total = len(milestones)
-
+def _exec_get_company_profile(user: FirebaseUser) -> dict[str, Any]:
+    p = load_profile(user.id_token)
+    if p is None:
+        return {"error": "No company profile found."}
     return {
-        "contract_id": str(contract.id),
-        "status": contract.status.value,
-        "agreed_amount": float(contract.agreed_amount),
-        "milestones_total": total,
-        "milestones_completed": completed,
-        "milestones_pending": total - completed,
-        "milestone_details": [
-            {
-                "title": m.title,
-                "payout_percentage": m.payout_percentage,
-                "is_completed": m.is_completed,
-                "due_date": str(m.due_date),
-            }
-            for m in milestones
-        ],
-        "summary": (
-            f"Contract is currently **{contract.status.value}**. "
-            f"{completed}/{total} milestones completed. "
-            f"Agreed amount: ₹{contract.agreed_amount:,.2f}."
-        ),
+        "company": p.get("companyName"),
+        "industry": p.get("industry"),
+        "location": p.get("location"),
+        "employees": p.get("employees"),
+        "capabilities": p.get("capabilities"),
+        "certifications": p.get("certifications"),
+        "bio": p.get("bio"),
+        "past_projects": p.get("pastProjects"),
     }
 
 
 _HELP_CONTENT: dict[str, str] = {
     "coms_matching": (
-        "**COMS (Capability-Opportunity Matching Score)** uses a hybrid scoring formula:\n"
-        "- 70% vector similarity: Sentence-BERT (768-dim) embeddings compare your capability "
-        "  profile to opportunity descriptions via Pinecone similarity search.\n"
-        "- 30% capability overlap: keyword intersection between your profile and the opportunity.\n"
-        "Final COMS score ranges from 0 to 1. Higher is better."
+        "**COMS (Capability-Opportunity Matching Score)** ranks opportunities for your company profile:\n"
+        "- 70% semantic similarity: sentence embeddings of your profile (capabilities, certifications, bio, past projects) "
+        "vs. each opportunity's text.\n"
+        "- 30% capability overlap: how much of the opportunity's vocabulary your profile covers.\n"
+        "Scores run 0-100%; open **COMS Matching** in the sidebar to run it."
     ),
     "vra_fairness": (
-        "**VRA (Visibility Rebalancing Algorithm)** ensures smaller MSMEs aren't buried:\n"
-        "VRA_Score = 0.75 × COMS + 0.25 × Discovery_Weight\n"
-        "Discovery_Weight is higher for MSMEs that haven't received recent opportunity exposure, "
-        "preventing monopoly patterns measured by the OCI (Opportunity Concentration Index)."
+        "**VRA (Visibility Rebalancing Algorithm)** is UNIFY's fairness layer: VRA_Score = 0.75 x COMS + 0.25 x Discovery_Weight, "
+        "boosting MSMEs that have had little recent exposure so large players don't monopolise opportunities. "
+        "(Planned - not live yet.)"
     ),
     "subscriptions": (
-        "UNIFY offers three subscription tiers:\n"
-        "- **Basic** ₹999/month: Up to 10 opportunity searches/day, 5 COMS matches/month.\n"
-        "- **Intermediate** ₹2,999/month: Unlimited searches, 50 matches/month, contract management.\n"
-        "- **Expert** ₹7,999/month: Everything + AI chatbot, mediation access, analytics."
+        "Plans (see **Subscriptions**): Basic Rs 999/mo, Intermediate Rs 2,999/mo (popular), Expert Rs 7,999/mo with unlimited views."
     ),
     "how_to_apply": (
-        "To apply for an opportunity:\n"
-        "1. Go to **Opportunities** in the sidebar.\n"
-        "2. Search or browse, then click on an opportunity.\n"
-        "3. Click **Apply** and fill out the application form.\n"
-        "4. Your application will be reviewed and a contract may be created."
+        "Open **Opportunities**, pick one, and press **Apply**. Track it under **My Applications**; "
+        "owners review incoming ones under **Requests**."
     ),
-    "mediation": (
-        "**Mediation** is UNIFY's dispute resolution service:\n"
-        "- Available for active contracts that enter a **DISPUTED** status.\n"
-        "- An AI mediation agent reviews milestone history and chat logs.\n"
-        "- Platform admins are notified and can intervene.\n"
-        "- Access Mediation from the sidebar under the same name."
-    ),
-    "contracts": (
-        "**Contracts** on UNIFY go through these stages:\n"
-        "UNDER_REVIEW → VERIFIED → ESCROW_PENDING → ACTIVE → COMPLETED (or DISPUTED)\n"
-        "- Only ADMINs and CONSULTANTs can change contract status.\n"
-        "- MSMEs can mark milestones complete once the contract is ACTIVE."
-    ),
-    "digital_maturity": (
-        "**Digital Maturity Score** (0–100) reflects how complete and rich your MSME profile is:\n"
-        "- Upload capability vectors (automatic from profile parsing).\n"
-        "- Add Udyam/GST registration.\n"
-        "- Complete your capability tags.\n"
-        "A higher score improves your COMS matches."
-    ),
+    "mediation": "**Mediation** helps resolve disputes on active deals: see the **Mediation** page for deal status and steps.",
+    "digital_maturity": "Digital maturity reflects how complete your profile is: capabilities, certifications, past projects and bio.",
     "general": (
-        "**UNIFY** is an AI-powered B2B procurement intelligence platform for MSMEs.\n"
-        "Key features:\n"
-        "- Semantic opportunity search and matching (COMS)\n"
-        "- Algorithmic fairness engine (VRA + OCI)\n"
-        "- Contract lifecycle management\n"
-        "- Mediation and dispute support\n"
-        "Ask me about any specific feature for more detail!"
+        "**UNIFY** is an AI-powered B2B procurement platform for MSMEs: opportunities, government tenders & contracts, "
+        "supply chain, collaborations, COMS matching and this assistant."
     ),
 }
 
 
 def _exec_platform_help(args: dict[str, Any]) -> dict[str, Any]:
-    topic: str = args.get("topic", "general").lower()
-    content = _HELP_CONTENT.get(topic, _HELP_CONTENT["general"])
-    return {"topic": topic, "content": content}
+    topic = str(args.get("topic", "general")).lower()
+    return {"topic": topic, "content": _HELP_CONTENT.get(topic, _HELP_CONTENT["general"])}
 
 
-# ---------------------------------------------------------------------------
-# Main streaming generator
-# ---------------------------------------------------------------------------
-
-def build_system_prompt(current_user: User) -> str:
-    role_context = {
-        UserRole.MSME: "You are talking to an MSME business owner on the UNIFY platform.",
-        UserRole.ADMIN: "You are talking to a UNIFY platform administrator.",
-        UserRole.CONSULTANT: "You are talking to a consultant who helps MSMEs on UNIFY.",
-        UserRole.VENDOR: "You are talking to a vendor/supplier on the UNIFY platform.",
-    }.get(current_user.role, "You are talking to a UNIFY platform user.")
-
+def build_system_prompt(user: FirebaseUser) -> str:
+    who = "a UNIFY platform administrator" if user.is_admin else "a business user"
     return (
-        "You are UNIFY Assistant, a helpful AI assistant embedded in the UNIFY platform. "
-        f"{role_context} "
-        "You help users understand opportunities, their match scores, contract status, and how the platform works. "
-        "Always be concise and professional. Use markdown formatting for structured answers. "
-        "When the user asks about opportunities, matches, contracts, or platform features, "
-        "use the available tools to fetch real data instead of making things up. "
-        "If you don't know something, say so honestly."
+        "You are UNIFY Assistant, an AI assistant embedded in the UNIFY B2B procurement platform. "
+        f"You are talking to {who} ({user.email}). "
+        "You help with opportunities, government tenders and contracts, supply-chain requests, collaborations, "
+        "match scores and the user's applications. "
+        "ALWAYS use the tools to fetch real data from the UNIFY database; never invent opportunities, numbers or statuses. "
+        "Be concise and professional and use markdown for lists and tables. "
+        f"Today is {date.today().isoformat()}; when listing items, clearly flag any whose deadline has already passed as expired. "
+        "If the data does not contain the answer, say so."
     )
 
 
@@ -398,19 +281,22 @@ def _text_event(text: str) -> str:
     return _sse({"delta": text, "done": False, "type": "text"})
 
 
-def _run_tool(db: Session, current_user: User, name: str, args: dict[str, Any]) -> dict[str, Any]:
+def _run_tool(user: FirebaseUser, name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         if name == "search_opportunities":
-            return _exec_search_opportunities(db, args)
+            return _exec_search_opportunities(user, args)
         if name == "explain_match":
-            return _exec_explain_match(db, current_user, args)
-        if name == "get_contract_status":
-            return _exec_get_contract_status(db, current_user, args)
+            return _exec_explain_match(user, args)
+        if name == "get_my_applications":
+            return _exec_get_my_applications(user, args)
+        if name == "get_company_profile":
+            return _exec_get_company_profile(user)
         if name == "platform_help":
             return _exec_platform_help(args)
         return {"error": f"Unknown tool: {name}"}
+    except firestore.FirestoreError as exc:
+        return {"error": f"Database error: {exc}"}
     except Exception as exc:
-        db.rollback()
         return {"error": f"Tool execution failed: {exc}"}
 
 
@@ -427,8 +313,7 @@ def _friendly_error(exc: Exception) -> str:
 
 
 def stream_chat_response(
-    db: Session,
-    current_user: User,
+    current_user: FirebaseUser,
     messages: list[dict[str, Any]],
 ) -> Generator[str, None, None]:
     """Stream a Groq chat completion (with tool use) as SSE events.
@@ -512,7 +397,7 @@ def stream_chat_response(
                     args = {}
             except json.JSONDecodeError:
                 args = {}
-            result = _run_tool(db, current_user, name, args)
+            result = _run_tool(current_user, name, args)
             yield _sse({"delta": "", "done": False, "type": "tool_result", "tool_name": name, "result": result})
             conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
 

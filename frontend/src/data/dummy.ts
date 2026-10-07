@@ -10,6 +10,7 @@ export interface Opportunity {
   postedBy: string;
   description: string;
   saved?: boolean;
+  createdAt?: string;
 }
 
 export interface SupplyChainRequest {
@@ -22,6 +23,7 @@ export interface SupplyChainRequest {
   location: string;
   deadline: string;
   description: string;
+  createdBy?: string;
 }
 
 export interface Collaboration {
@@ -33,15 +35,34 @@ export interface Collaboration {
   sector: string;
   partnersNeeded: number;
   description: string;
+  fullDescription?: string;
+  createdBy?: string;
 }
 
 export interface Application {
   id: string;
   opportunityTitle: string;
-  status: "pending" | "reviewed" | "shortlisted" | "rejected" | "accepted";
+  opportunityId?: string;
+  opportunityType?: string;
+  status: "pending" | "reviewed" | "shortlisted" | "rejected" | "accepted" | "withdrawn";
   appliedDate: string;
   sector: string;
   budget: string;
+  company?: string;
+  location?: string;
+  description?: string;
+  message?: string;
+  ownerId?: string;
+  applicantId?: string;
+  applicantName?: string;
+  applicantCompany?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  progress?: number;
+  nextStep?: string;
+  contractValue?: string;
+  duration?: string;
 }
 
 export const opportunities: Opportunity[] = [

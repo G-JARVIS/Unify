@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchCollaborations, createCollaboration } from "@/lib/db";
-import { Users, Handshake, Plus, X, ExternalLink } from "lucide-react";
+import { fetchCollaborations, createCollaboration, fetchApplications, createApplication, ApiError } from "@/lib/db";
+import { Users, Handshake, Plus, X, ExternalLink, BadgeCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,13 +19,51 @@ const Collaborations = () => {
     skillInput: "",
   });
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+
   const { data: collaborationsList = [] } = useQuery({
     queryKey: ["collaborations"],
     queryFn: fetchCollaborations,
   });
 
-  const handleSendRequest = (name: string) => {
-    toast.success("Collaboration request sent!", { description: `Your request to ${name} has been submitted.` });
+  // Track IDs+titles of non-withdrawn applied collaborations
+  const appliedSet = new Set(
+    applications
+      .filter((a) => a.status !== "withdrawn")
+      .flatMap((a) => [a.opportunityId, a.opportunityTitle].filter(Boolean))
+  );
+  const availableCollaborations = collaborationsList.filter(
+    (c) => !appliedSet.has(c.id) && !appliedSet.has(c.projectTitle)
+  );
+
+  const handleSendRequest = async (collab: typeof collaborationsList[0]) => {
+    try {
+      await createApplication({
+        opportunityId: collab.id,
+        opportunityTitle: collab.projectTitle,
+        opportunityType: "collaboration",
+        ownerId: collab.createdBy || "",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: collab.sector,
+        budget: collab.budget,
+        company: collab.companyName,
+        location: "Pan India",
+        description: collab.description,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["collaborations"] });
+      toast.success("Collaboration request sent!", {
+        description: `Your request to join "${collab.projectTitle}" has been submitted. Track it in My Applications.`,
+      });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to send request. Please try again.";
+      toast.error(msg);
+    }
   };
 
   const handleAddSkill = () => {
@@ -126,38 +164,45 @@ const Collaborations = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {collaborationsList.map((collab) => (
-          <div key={collab.id} className="glass-card-hover rounded-xl p-5 flex flex-col">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-2 rounded-lg bg-accent">
-                <Handshake className="h-4 w-4 text-accent-foreground" />
+      {availableCollaborations.length === 0 ? (
+        <div className="text-center py-16 glass-card rounded-xl">
+          <Handshake className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-muted-foreground text-sm">No open collaborations available at the moment.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {availableCollaborations.map((collab) => (
+            <div key={collab.id} className="glass-card-hover rounded-xl p-5 flex flex-col">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-accent">
+                  <Handshake className="h-4 w-4 text-accent-foreground" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{collab.companyName}</p>
+                  <p className="text-[11px] text-muted-foreground">{collab.sector}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{collab.companyName}</p>
-                <p className="text-[11px] text-muted-foreground">{collab.sector}</p>
+              <h3 className="text-sm font-semibold">{collab.projectTitle}</h3>
+              <p className="text-xs text-muted-foreground mt-2 line-clamp-2 flex-1">{collab.description}</p>
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {collab.requiredSkills.map((skill) => (
+                  <span key={skill} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">{skill}</span>
+                ))}
+              </div>
+              <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{collab.budget}</span>
+                <span className="flex items-center gap-1"><Users className="h-3 w-3" />{collab.partnersNeeded} partners needed</span>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => handleSendRequest(collab)} className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">Send Request</button>
+                <button onClick={() => navigate(`/collaborations/${collab.id}`)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
+                  <ExternalLink className="h-3 w-3" /> View Details
+                </button>
               </div>
             </div>
-            <h3 className="text-sm font-semibold">{collab.projectTitle}</h3>
-            <p className="text-xs text-muted-foreground mt-2 line-clamp-2 flex-1">{collab.description}</p>
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {collab.requiredSkills.map((skill) => (
-                <span key={skill} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">{skill}</span>
-              ))}
-            </div>
-            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{collab.budget}</span>
-              <span className="flex items-center gap-1"><Users className="h-3 w-3" />{collab.partnersNeeded} partners needed</span>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => handleSendRequest(collab.companyName)} className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">Send Request</button>
-              <button onClick={() => navigate(`/collaborations/${collab.id}`)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1">
-                <ExternalLink className="h-3 w-3" /> View Details
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

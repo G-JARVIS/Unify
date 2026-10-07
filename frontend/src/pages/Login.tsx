@@ -20,15 +20,11 @@ const Login = () => {
     }
     setLoading(true);
     try {
-      const success = await login(email, password);
-      if (success) {
-        toast.success("Welcome back!");
-        navigate("/");
-      } else {
-        toast.error("Incorrect email or password");
-      }
-    } catch {
-      toast.error("Login failed. Please try again.");
+      await login(email, password);
+      toast.success("Welcome back!");
+      navigate("/");
+    } catch (err) {
+      toast.error("Login failed", { description: err instanceof Error ? err.message : "Check your email and password" });
     } finally {
       setLoading(false);
     }

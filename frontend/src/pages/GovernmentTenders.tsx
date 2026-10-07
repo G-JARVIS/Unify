@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchGovTenders } from "@/lib/db";
+import { fetchGovTenders, fetchApplications } from "@/lib/db";
 import { Landmark, MapPin, Calendar, IndianRupee, ExternalLink, ShieldCheck, Search } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -9,9 +9,13 @@ const GovernmentTenders = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
 
+  const { data: applications = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
   const { data: tenders = [] } = useQuery({ queryKey: ["gov-tenders"], queryFn: fetchGovTenders });
 
-  const activeTenders = tenders.filter((t) => t.status === "active");
+  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
+  const activeTenders = tenders.filter(
+    (t) => t.status === "active" && !appliedSet.has(t.id) && !appliedSet.has(t.title)
+  );
   const sectors = Array.from(new Set(activeTenders.map((t) => t.sector))).sort();
 
   const filtered = activeTenders.filter((t) => {

@@ -28,17 +28,18 @@ export interface RegisterData {
   role?: UserRole;
 }
 
-// --------------- MSME Profile --------------------------------
+// --------------- Company profile (Firestore profile/main) -------------
 
 export interface MSMEProfile {
   id: string;
   user_id: string;
   company_name: string;
-  udyam_registration: string | null;
-  digital_maturity_score: number;
-  fairness_score: number;
-  capabilities: Record<string, unknown>;
-  certifications: string[] | Record<string, unknown> | null;
+  industry: string | null;
+  location: string | null;
+  employees: number | null;
+  capabilities: string[];
+  certifications: string[];
+  bio: string | null;
 }
 
 // --------------- Opportunities --------------------------------
@@ -108,39 +109,4 @@ export interface MatchFilters {
 export interface APIError {
   detail: string;
   status: number;
-}
-
-// --------------- Contracts & Milestones ------------------------
-
-export type ContractStatus = "UNDER_REVIEW" | "VERIFIED" | "ESCROW_PENDING" | "ACTIVE" | "COMPLETED" | "DISPUTED";
-
-export interface MilestoneCreate {
-  title: string;
-  payout_percentage: number;
-  due_date: string; // ISO date string
-}
-
-export interface MilestoneRead {
-  id: string;
-  contract_id: string;
-  title: string;
-  payout_percentage: number;
-  is_completed: boolean;
-  due_date: string; // ISO date string
-}
-
-export interface ContractCreate {
-  opportunity_id?: string | null;
-  msme_id: string;
-  agreed_amount: number;
-  milestones: MilestoneCreate[];
-}
-
-export interface ContractRead {
-  id: string;
-  opportunity_id: string | null;
-  msme_id: string | null;
-  status: ContractStatus;
-  agreed_amount: number;
-  milestones: MilestoneRead[];
 }

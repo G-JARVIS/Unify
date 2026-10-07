@@ -1,12 +1,25 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { fetchGovTender } from "@/lib/db";
-import { MapPin, Calendar, Building2, ArrowLeft, Share2, IndianRupee, ShieldCheck } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchGovTender, createApplication } from "@/lib/db";
+import { MapPin, Calendar, Building2, ArrowLeft, Share2, IndianRupee, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const GovernmentTenderDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const { data: tender, isLoading } = useQuery({
     queryKey: ["gov-tender", id],
@@ -27,13 +40,34 @@ const GovernmentTenderDetail = () => {
     );
   }
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (tender.applyLink) {
       window.open(tender.applyLink, "_blank", "noopener,noreferrer");
-    } else {
-      toast.success("Application submitted!", {
-        description: `You applied for "${tender.title}". Track it in My Applications.`,
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await createApplication({
+        opportunityId: tender.id,
+        opportunityTitle: tender.title,
+        opportunityType: "gov-tender",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: tender.sector,
+        budget: tender.budget,
+        company: tender.department,
+        location: tender.location,
+        description: tender.description,
       });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["gov-tenders"] });
+      setShowSuccessModal(true);
+    } catch {
+      toast.error("Failed to submit application. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -94,15 +128,44 @@ const GovernmentTenderDetail = () => {
         <div className="flex gap-2">
           <button
             onClick={handleApply}
+            disabled={isSubmitting}
             className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity"
           >
-            {tender.applyLink ? "Apply Now →" : "Apply Now"}
+            {isSubmitting ? "Submitting Application..." : tender.applyLink ? "Apply Now →" : "Apply Now"}
           </button>
           <button onClick={() => navigate("/government-tenders")} className="flex-1 h-10 rounded-lg border border-border font-semibold hover:bg-muted transition-colors">
             Back to Tenders
           </button>
         </div>
       </div>
+
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md text-center">
+          <DialogHeader className="flex flex-col items-center justify-center text-center">
+            <div className="h-12 w-12 rounded-full bg-success/20 text-success flex items-center justify-center mb-3">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold">Tender Application Submitted!</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2">
+              Your application for <span className="font-semibold text-foreground">"{tender.title}"</span> has been submitted to <span className="font-semibold text-foreground">{tender.department}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <button
+              onClick={() => navigate("/applications")}
+              className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              Track in My Applications
+            </button>
+            <button
+              onClick={() => navigate("/government-tenders")}
+              className="flex-1 h-10 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              Back to Tenders
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

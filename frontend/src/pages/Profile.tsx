@@ -2,8 +2,7 @@ import { Building2, MapPin, Users, Award, Briefcase, Edit3, Check, X, Plus } fro
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchProfile } from "@/lib/db";
-import { profiles as profilesAPI } from "@/lib/api";
+import { fetchProfile, updateProfile } from "@/lib/db";
 import type { Profile as ProfileType } from "@/lib/db";
 
 const Profile = () => {
@@ -22,15 +21,10 @@ const Profile = () => {
 
   const handleSave = async () => {
     if (!profile) return;
-    try {
-      await profilesAPI.upsertMSMEProfile({ company_name: profile.companyName });
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
-      queryClient.invalidateQueries({ queryKey: ["msme-profile"] });
-      setEditing(false);
-      toast.success("Profile updated!", { description: "Your business profile has been saved." });
-    } catch (err) {
-      toast.error("Failed to save profile", { description: "Please check you are logged in." });
-    }
+    await updateProfile(profile);
+    queryClient.invalidateQueries({ queryKey: ["profile"] });
+    setEditing(false);
+    toast.success("Profile updated!", { description: "Your business profile has been saved." });
   };
 
   if (!profile) return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading...</div>;

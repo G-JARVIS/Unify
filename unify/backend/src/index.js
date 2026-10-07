@@ -18,7 +18,7 @@ const notificationsRoutes = require('./routes/notifications');
 const profileRoutes = require('./routes/profile');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // ── Global Middleware ──────────────────────────────────────────────────────────
 app.use(helmet());

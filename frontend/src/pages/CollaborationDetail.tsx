@@ -1,18 +1,48 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Users, Handshake, IndianRupee, Share2, ExternalLink, Building2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchCollaboration, createApplication, fetchApplications, ApiError } from "@/lib/db";
+import { ArrowLeft, Users, IndianRupee, Share2, CheckCircle2, Building2, Check, BadgeCheck } from "lucide-react";
 import { toast } from "sonner";
-
-const collaborations = [
-  { id: "1", companyName: "InnovateTech Solutions", projectTitle: "Pan-India Digital ID System", requiredSkills: ["Blockchain", "Mobile Dev", "Security"], budget: "₹16Cr", sector: "GovTech", partnersNeeded: 3, description: "Building a decentralized digital identity system for cross-state verification.", fullDescription: "InnovateTech Solutions is developing a comprehensive digital identity system that will enable seamless verification across all Indian states and union territories. The project involves creating a blockchain-based infrastructure that ensures privacy, security, and interoperability. We are looking for partners with expertise in blockchain technology, mobile application development, and cybersecurity. The system will support Aadhaar integration, biometric verification, and cross-border identity validation. This is a 24-month project with potential for international expansion." },
-  { id: "2", companyName: "GreenBuild Consortium", projectTitle: "Sustainable Housing Initiative", requiredSkills: ["Architecture", "Green Energy", "Construction"], budget: "₹40Cr", sector: "Construction", partnersNeeded: 5, description: "Affordable and sustainable housing using local materials and renewable energy.", fullDescription: "GreenBuild Consortium is launching an ambitious sustainable housing initiative targeting affordable housing for middle-income families across urban and semi-urban areas. The project focuses on using locally sourced materials, renewable energy integration, and green building standards. We need partners with expertise in sustainable architecture, solar energy systems, and construction management. The initiative includes 5000 housing units across 10 cities, with each unit incorporating rainwater harvesting, solar panels, and energy-efficient designs. This is a 36-month project with significant social impact potential." },
-  { id: "3", companyName: "HealthBridge AI", projectTitle: "Telemedicine Network Expansion", requiredSkills: ["Healthcare IT", "AI/ML", "Networking"], budget: "₹12Cr", sector: "Healthcare", partnersNeeded: 2, description: "Expanding telemedicine capabilities to rural clinics across India.", fullDescription: "HealthBridge AI is expanding its telemedicine network to connect rural healthcare facilities with urban medical experts. The project involves deploying AI-powered diagnostic tools, establishing secure communication networks, and creating a centralized patient management system. We are seeking partners with healthcare IT experience, machine learning expertise, and network infrastructure knowledge. The expansion will cover 500 rural clinics across 15 states, enabling real-time consultations, remote diagnostics, and emergency response coordination. This initiative aims to bridge the urban-rural healthcare divide." },
-];
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const CollaborationDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const collaboration = collaborations.find(c => c.id === id);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  const { data: collaboration, isLoading } = useQuery({
+    queryKey: ["collaboration", id],
+    queryFn: () => fetchCollaboration(id!),
+    enabled: !!id,
+  });
+
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+
+  const alreadyApplied = myApplications.some(
+    (a) => (a.opportunityId === id || a.opportunityTitle === collaboration?.projectTitle) && a.status !== "withdrawn"
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <p className="text-sm text-muted-foreground animate-pulse">Loading collaboration details...</p>
+      </div>
+    );
+  }
 
   if (!collaboration) {
     return (
@@ -26,14 +56,36 @@ const CollaborationDetail = () => {
   }
 
   const handleShare = () => {
-    navigator.clipboard.writeText(`Check out this collaboration opportunity: ${collaboration.projectTitle}`);
+    navigator.clipboard.writeText(window.location.href);
     toast.success("Copied to clipboard!");
   };
 
-  const handleSendRequest = () => {
-    toast.success("Collaboration request sent!", {
-      description: `Your request to join "${collaboration.projectTitle}" has been sent to ${collaboration.companyName}.`,
-    });
+  const handleSendRequest = async () => {
+    setIsSubmitting(true);
+    try {
+      await createApplication({
+        opportunityId: collaboration.id,
+        opportunityTitle: collaboration.projectTitle,
+        opportunityType: "collaboration",
+        ownerId: collaboration.createdBy || "",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: collaboration.sector,
+        budget: collaboration.budget,
+        company: collaboration.companyName,
+        location: "Pan India",
+        description: collaboration.description,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["collaborations"] });
+      setShowSuccessModal(true);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to submit request. Please try again.";
+      toast.error(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -106,13 +158,20 @@ const CollaborationDetail = () => {
         </div>
 
         <div className="flex gap-3">
-          <button
-            onClick={handleSendRequest}
-            className="flex-1 h-11 rounded-lg gradient-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shadow-lg flex items-center justify-center gap-2"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Send Request
-          </button>
+          {alreadyApplied ? (
+            <div className="flex-1 h-11 rounded-lg bg-success/10 text-success text-sm font-semibold flex items-center justify-center gap-2 border border-success/20">
+              <BadgeCheck className="h-4 w-4" />
+              Request Already Submitted
+            </div>
+          ) : (
+            <button
+              onClick={handleSendRequest}
+              disabled={isSubmitting}
+              className="flex-1 h-11 rounded-lg gradient-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shadow-lg flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? "Submitting Request..." : "Send Request"}
+            </button>
+          )}
           <button
             onClick={() => navigate("/collaborations")}
             className="flex-1 h-11 rounded-lg border-2 border-border text-sm font-semibold hover:bg-muted transition-colors"
@@ -121,6 +180,34 @@ const CollaborationDetail = () => {
           </button>
         </div>
       </div>
+
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md text-center">
+          <DialogHeader className="flex flex-col items-center justify-center text-center">
+            <div className="h-12 w-12 rounded-full bg-success/20 text-success flex items-center justify-center mb-3">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold">Request Submitted Successfully!</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2">
+              Your request to collaborate on <span className="font-semibold text-foreground">"{collaboration.projectTitle}"</span> has been saved and sent to <span className="font-semibold text-foreground">{collaboration.companyName}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <button
+              onClick={() => navigate("/applications")}
+              className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              Track in My Applications
+            </button>
+            <button
+              onClick={() => navigate("/collaborations")}
+              className="flex-1 h-10 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              Back to Collaborations
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

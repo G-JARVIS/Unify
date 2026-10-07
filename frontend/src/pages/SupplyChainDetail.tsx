@@ -1,24 +1,53 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, Calendar, Building2, IndianRupee, Share2, ExternalLink, Package } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchSupplyChainRequest, createApplication, fetchApplications, ApiError } from "@/lib/db";
+import { ArrowLeft, MapPin, Calendar, Building2, IndianRupee, Share2, CheckCircle2, Package, BadgeCheck } from "lucide-react";
 import { toast } from "sonner";
-
-const supplyChainRequests = [
-  { id: "1", companyName: "BuildTech Industries", title: "Steel Beams & Structural Components", sector: "Construction", quantity: "500 metric tons", budget: "₹6Cr", location: "Mumbai", deadline: "2026-04-30", description: "High-grade structural steel for commercial building projects.", fullDescription: "BuildTech Industries is seeking high-grade structural steel components for multiple commercial building projects across India. We require 500 metric tons of certified steel beams, columns, and structural components that meet Indian Standards (IS: 2062). The steel must undergo rigorous quality checks including tensile testing, hardness testing, and chemical composition analysis. Delivery should be completed by April 30, 2026. We prefer suppliers with proven track record in supplying to major construction companies and government projects." },
-  { id: "2", companyName: "FreshFarm Co.", title: "Cold Storage Equipment", sector: "Agriculture", quantity: "25 units", budget: "₹1.6Cr", location: "Pune", deadline: "2026-05-15", description: "Industrial cold storage units for perishable goods.", fullDescription: "FreshFarm Co. is looking for industrial-grade cold storage equipment to establish a network of agricultural processing centers across Maharashtra and neighboring states. We need 25 complete cold storage units with specifications: Capacity 5000-10000 MT per unit, Temperature control -5°C to 5°C, Humidity control 90-95%, Backup power system with 72-hour battery backup. Installation and training included. Preferred brands with service centers in western India. Timeline for complete installation is May 15, 2026." },
-  { id: "3", companyName: "TechVentures Ltd", title: "Server Infrastructure Setup", sector: "Technology", quantity: "Data center for 200 racks", budget: "₹9.6Cr", location: "Bengaluru", deadline: "2026-06-01", description: "Complete data center setup including servers, networking, and cooling.", fullDescription: "TechVentures Ltd is establishing a tier-3 data center facility in Bengaluru to support cloud services and enterprise hosting. Requirements include: 200 server racks with enterprise-grade servers (minimum 32-core processors), redundant networking switches (Tier-1 brands), advanced cooling systems (liquid cooling preferred), UPS with minimum 4 hours runtime, fire suppression systems, physical security infrastructure, and comprehensive monitoring systems. The vendor should also provide 24/7 technical support and SLA of 99.99% uptime. Full deployment by June 1, 2026." },
-  { id: "4", companyName: "CleanEnergy Corp", title: "Solar Panel Manufacturing Materials", sector: "Energy", quantity: "10,000 panels worth", budget: "₹4Cr", location: "Gujarat", deadline: "2026-05-20", description: "Raw materials for solar panel manufacturing including silicon wafers.", fullDescription: "CleanEnergy Corp is a solar panel manufacturer seeking consistent supply of high-purity raw materials for manufacturing 10,000 solar panels annually. Materials needed: Polycrystalline silicon wafers (275-300 microns thickness), solar glass (4mm borosilicate), aluminum frames, junction boxes, bypass diodes, and interconnecting ribbons. All materials must comply with IEC 61215 standards and come with certification. Supplier must have capacity for quarterly bulk orders and maintain consistent quality. Preferred payment terms: 30-60 days post-delivery. Target completion by May 20, 2026." },
-];
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const SupplyChainDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const request = supplyChainRequests.find(r => r.id === id);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  const { data: request, isLoading } = useQuery({
+    queryKey: ["supply-chain-request", id],
+    queryFn: () => fetchSupplyChainRequest(id!),
+    enabled: !!id,
+  });
+
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
+  });
+
+  const alreadyApplied = myApplications.some(
+    (a) => (a.opportunityId === id || a.opportunityTitle === request?.title) && a.status !== "withdrawn"
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <p className="text-sm text-muted-foreground animate-pulse">Loading requirement details...</p>
+      </div>
+    );
+  }
 
   if (!request) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
-        <h1 className="text-2xl font-bold">Request not found</h1>
+        <h1 className="text-2xl font-bold">Requirement not found</h1>
         <button onClick={() => navigate("/supply-chain")} className="mt-4 h-9 px-4 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90">
           Back to Supply Chain
         </button>
@@ -27,14 +56,36 @@ const SupplyChainDetail = () => {
   }
 
   const handleShare = () => {
-    navigator.clipboard.writeText(`Check out this supply chain requirement: ${request.title}`);
+    navigator.clipboard.writeText(window.location.href);
     toast.success("Copied to clipboard!");
   };
 
-  const handleSubmitProposal = () => {
-    toast.success("Proposal submitted!", {
-      description: `Your proposal for "${request.title}" has been sent to ${request.companyName}.`,
-    });
+  const handleSubmitProposal = async () => {
+    setIsSubmitting(true);
+    try {
+      await createApplication({
+        opportunityId: request.id,
+        opportunityTitle: request.title,
+        opportunityType: "supply-chain",
+        ownerId: request.createdBy || "",
+        status: "pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        sector: request.sector,
+        budget: request.budget,
+        company: request.companyName,
+        location: request.location,
+        description: request.description,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["supply-chain"] });
+      setShowSuccessModal(true);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to submit proposal. Please try again.";
+      toast.error(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -108,18 +159,25 @@ const SupplyChainDetail = () => {
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div>
             <h2 className="text-lg font-bold mb-3">Requirement Details</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">{request.fullDescription}</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">{request.description}</p>
           </div>
         </div>
 
         <div className="flex gap-3">
-          <button
-            onClick={handleSubmitProposal}
-            className="flex-1 h-11 rounded-lg gradient-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shadow-lg flex items-center justify-center gap-2"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Submit Proposal
-          </button>
+          {alreadyApplied ? (
+            <div className="flex-1 h-11 rounded-lg bg-success/10 text-success text-sm font-semibold flex items-center justify-center gap-2 border border-success/20">
+              <BadgeCheck className="h-4 w-4" />
+              Proposal Already Submitted
+            </div>
+          ) : (
+            <button
+              onClick={handleSubmitProposal}
+              disabled={isSubmitting}
+              className="flex-1 h-11 rounded-lg gradient-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity shadow-lg flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? "Submitting Proposal..." : "Submit Proposal"}
+            </button>
+          )}
           <button
             onClick={() => navigate("/supply-chain")}
             className="flex-1 h-11 rounded-lg border-2 border-border text-sm font-semibold hover:bg-muted transition-colors"
@@ -128,6 +186,34 @@ const SupplyChainDetail = () => {
           </button>
         </div>
       </div>
+
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md text-center">
+          <DialogHeader className="flex flex-col items-center justify-center text-center">
+            <div className="h-12 w-12 rounded-full bg-success/20 text-success flex items-center justify-center mb-3">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold">Proposal Submitted Successfully!</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2">
+              Your proposal for <span className="font-semibold text-foreground">"{request.title}"</span> has been saved and sent to <span className="font-semibold text-foreground">{request.companyName}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+            <button
+              onClick={() => navigate("/applications")}
+              className="flex-1 h-10 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              Track in My Applications
+            </button>
+            <button
+              onClick={() => navigate("/supply-chain")}
+              className="flex-1 h-10 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              Back to Supply Chain
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
