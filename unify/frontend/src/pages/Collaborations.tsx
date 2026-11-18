@@ -77,23 +77,36 @@ const Collaborations = () => {
   };
 
   const handlePostCollaboration = async () => {
-    if (!formData.projectTitle || !formData.sector || !formData.budget || formData.requiredSkills.length === 0) {
-      toast.error("Please fill in all fields");
+    const projectTitle = formData.projectTitle.trim();
+    const sector = formData.sector.trim();
+    const budget = formData.budget.trim();
+    if (!projectTitle || !sector || !budget) {
+      toast.error("Complete the required fields", {
+        description: "Project title, sector, and budget are required. Required skills are optional.",
+      });
       return;
     }
-    await createCollaboration({
-      companyName: "C-78 PVT LTD",
-      projectTitle: formData.projectTitle,
-      requiredSkills: formData.requiredSkills,
-      budget: formData.budget,
-      sector: formData.sector,
-      partnersNeeded: formData.partnersNeeded,
-      description: formData.description,
-    });
-    queryClient.invalidateQueries({ queryKey: ["collaborations"] });
-    toast.success("Collaboration posted!", { description: "Your collaboration request is now visible to other companies." });
-    setShowForm(false);
-    setFormData({ projectTitle: "", sector: "", budget: "", partnersNeeded: 1, requiredSkills: [], description: "", skillInput: "" });
+    const requiredSkills = [...formData.requiredSkills];
+    if (formData.skillInput.trim()) requiredSkills.push(formData.skillInput.trim());
+    try {
+      await createCollaboration({
+        projectTitle,
+        requiredSkills,
+        budget,
+        sector,
+        partnersNeeded: Number.isInteger(formData.partnersNeeded) && formData.partnersNeeded > 0
+          ? formData.partnersNeeded
+          : 1,
+        description: formData.description.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["collaborations"] });
+      toast.success("Collaboration posted!", { description: "Your collaboration request is now visible to other companies." });
+      setShowForm(false);
+      setFormData({ projectTitle: "", sector: "", budget: "", partnersNeeded: 1, requiredSkills: [], description: "", skillInput: "" });
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "The collaboration could not be posted. Please try again.";
+      toast.error("Could not post collaboration", { description: message });
+    }
   };
 
   return (
@@ -142,7 +155,7 @@ const Collaborations = () => {
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground">Required Skills</label>
+            <label className="text-xs text-muted-foreground">Required Skills (optional)</label>
             <div className="flex gap-2 mt-1">
               <input type="text" value={formData.skillInput} onChange={(e) => setFormData({ ...formData, skillInput: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddSkill(); } }} placeholder="Add a skill" className="flex-1 h-9 px-3 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               <button onClick={handleAddSkill} className="h-9 px-3 rounded-lg bg-primary/20 text-primary text-xs font-medium hover:bg-primary/30">Add</button>

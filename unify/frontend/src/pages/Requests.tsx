@@ -11,7 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Application } from "@/data/dummy";
+import type { Application } from "@/data/types";
 
 const statusConfig: Record<string, { color: string; bg: string; label: string }> = {
   pending: { color: "text-warning", bg: "bg-warning/10", label: "Pending" },

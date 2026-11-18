@@ -10,24 +10,32 @@ const Profile = () => {
   const [editing, setEditing] = useState(false);
   const [profile, setProfile] = useState<ProfileType | null>(null);
 
-  const { data: fetchedProfile } = useQuery({
+  const { data: fetchedProfile, isLoading, isError, error } = useQuery({
     queryKey: ["profile"],
     queryFn: fetchProfile,
   });
 
   useEffect(() => {
     if (fetchedProfile && !profile) setProfile(fetchedProfile);
-  }, [fetchedProfile]);
+  }, [fetchedProfile, profile]);
 
   const handleSave = async () => {
     if (!profile) return;
-    await updateProfile(profile);
-    queryClient.invalidateQueries({ queryKey: ["profile"] });
-    setEditing(false);
-    toast.success("Profile updated!", { description: "Your business profile has been saved." });
+    try {
+      await updateProfile(profile);
+      await queryClient.invalidateQueries({ queryKey: ["profile"] });
+      setEditing(false);
+      toast.success("Profile updated!", { description: "Your business profile has been saved." });
+    } catch (saveError) {
+      toast.error("Could not save profile", {
+        description: saveError instanceof Error ? saveError.message : "Please try again.",
+      });
+    }
   };
 
-  if (!profile) return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading...</div>;
+  if (isLoading) return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading profile…</div>;
+  if (isError) return <div role="alert" className="flex items-center justify-center py-20 text-destructive text-sm">Could not load profile: {error.message}</div>;
+  if (!profile) return <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">No business profile is available.</div>;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-fade-in">
@@ -111,7 +119,7 @@ const Profile = () => {
                 />
                 <button
                   onClick={(e) => {
-                    const input = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
                     if (input.value.trim()) { setProfile({ ...profile, capabilities: [...profile.capabilities, input.value.trim()] }); input.value = ""; }
                   }}
                   className="h-8 px-3 rounded-lg bg-primary/20 text-primary text-xs font-medium hover:bg-primary/30 flex items-center gap-1"
@@ -155,7 +163,7 @@ const Profile = () => {
                 />
                 <button
                   onClick={(e) => {
-                    const input = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
                     if (input.value.trim()) { setProfile({ ...profile, certifications: [...profile.certifications, input.value.trim()] }); input.value = ""; }
                   }}
                   className="h-8 px-3 rounded-lg bg-success/20 text-success text-xs font-medium hover:bg-success/30 flex items-center gap-1"

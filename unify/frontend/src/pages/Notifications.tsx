@@ -11,7 +11,7 @@ const Notifications = () => {
   const queryClient = useQueryClient();
   const [localRead, setLocalRead] = useState<Record<string, boolean>>({});
 
-  const { data: notifications = [] } = useQuery({
+  const { data: notifications = [], isLoading, isError, error } = useQuery({
     queryKey: ["notifications"],
     queryFn: fetchNotifications,
   });
@@ -24,29 +24,46 @@ const Notifications = () => {
   const markAllRead = async () => {
     const updates: Record<string, boolean> = {};
     displayed.forEach((n) => { updates[n.id] = true; });
-    setLocalRead((prev) => ({ ...prev, ...updates }));
-    await markAllNotificationsRead();
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    toast.success("All notifications marked as read");
+    try {
+      await markAllNotificationsRead();
+      setLocalRead((prev) => ({ ...prev, ...updates }));
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success("All notifications marked as read");
+    } catch (err) {
+      toast.error("Could not update notifications", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    }
   };
 
   const handleClick = async (n: Notification) => {
-    setLocalRead((prev) => ({ ...prev, [n.id]: true }));
-    await markNotificationRead(n.id);
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    navigate(n.link);
+    try {
+      await markNotificationRead(n.id);
+      setLocalRead((prev) => ({ ...prev, [n.id]: true }));
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      navigate(n.link);
+    } catch (err) {
+      toast.error("Could not update notification", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    }
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Notifications</h1>
-        <button onClick={markAllRead} className="flex items-center gap-1.5 text-xs text-primary font-medium hover:underline">
+        <button onClick={markAllRead} disabled={displayed.length === 0} className="flex items-center gap-1.5 text-xs text-primary font-medium hover:underline disabled:opacity-50">
           <CheckCheck className="h-3.5 w-3.5" /> Mark all read
         </button>
       </div>
+      {isLoading && <p className="py-12 text-center text-sm text-muted-foreground">Loading notifications…</p>}
+      {isError && <p role="alert" className="py-12 text-center text-sm text-destructive">Could not load notifications: {error.message}</p>}
+      {!isLoading && !isError && displayed.length === 0 && (
+        <p className="py-12 text-center text-sm text-muted-foreground">You have no notifications yet.</p>
+      )}
       <div className="space-y-2">
-        {displayed.map((n) => (
+        {!isLoading && !isError && displayed.map((n) => (
           <div
             key={n.id}
             onClick={() => handleClick(n)}

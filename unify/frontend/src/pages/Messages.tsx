@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { Send, Search } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchConversations, sendMessage, dummyConversations } from "@/lib/db";
+import { fetchConversations, sendMessage } from "@/lib/db";
 import type { Conversation, ChatMessage } from "@/lib/db";
+import { toast } from "sonner";
+import { Link } from "react-router-dom";
 
 const Messages = () => {
   const queryClient = useQueryClient();
-  const [activeConvId, setActiveConvId] = useState<string>("1");
+  const [activeConvId, setActiveConvId] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [localMessages, setLocalMessages] = useState<Record<string, ChatMessage[]>>({});
 
-  const { data: conversations = dummyConversations } = useQuery({
+  const { data: conversations = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["conversations"],
     queryFn: fetchConversations,
   });
@@ -23,19 +24,37 @@ const Messages = () => {
   );
 
   const active = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
-  const extra = localMessages[activeConvId] ?? [];
-  const allMessages: ChatMessage[] = active ? [...active.messages, ...extra] : [];
+  const allMessages: ChatMessage[] = active ? active.messages : [];
 
   const handleSend = async () => {
     if (!newMessage.trim() || !active) return;
     const text = newMessage;
-    setNewMessage("");
-    const msg = await sendMessage(active.id, text);
-    setLocalMessages((prev) => ({ ...prev, [active.id]: [...(prev[active.id] ?? []), msg] }));
-    queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    try {
+      await sendMessage(active.id, text);
+      setNewMessage("");
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (sendError) {
+      toast.error("Message could not be sent", { description: sendError instanceof Error ? sendError.message : "Unknown error" });
+    }
   };
 
-  if (!active) return null;
+  if (isLoading) return <p className="py-20 text-center text-sm text-muted-foreground">Loading messages…</p>;
+  if (isError) {
+    return (
+      <div role="alert" className="py-20 text-center text-sm text-destructive">
+        <p>Could not load messages: {error.message}</p>
+        <button onClick={() => refetch()} className="mt-3 underline">Try again</button>
+      </div>
+    );
+  }
+  if (!active) {
+    return (
+      <div className="py-20 text-center text-sm text-muted-foreground">
+        <p>No conversations yet.</p>
+        <Link to="/collaborations" className="mt-3 inline-block text-primary hover:underline">Browse collaborations</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in h-[calc(100vh-7rem)]">
@@ -59,7 +78,7 @@ const Messages = () => {
               <button
                 key={conv.id}
                 onClick={() => setActiveConvId(conv.id)}
-                className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors border-b border-border/50 ${activeConvId === conv.id ? "bg-muted/70" : ""}`}
+                className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors border-b border-border/50 ${active?.id === conv.id ? "bg-muted/70" : ""}`}
               >
                 <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
                   <span className="text-[11px] font-bold text-primary-foreground">{conv.avatar}</span>
