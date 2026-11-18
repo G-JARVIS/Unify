@@ -69,7 +69,7 @@ export function TopNavbar() {
               <span className="text-xs font-bold text-primary-foreground">{initials}</span>
             </div>
             <div className="text-left hidden sm:block">
-              <p className="text-sm font-medium leading-none">{user?.company || "C-78 PVT LTD"}</p>
+              <p className="text-sm font-medium leading-none">{user?.company || "Your business"}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">MSME Account</p>
             </div>
             <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${showDropdown ? "rotate-180" : ""}`} />

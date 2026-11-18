@@ -1,5 +1,6 @@
 import { AppSidebar } from "./AppSidebar";
 import { TopNavbar } from "./TopNavbar";
+import { ChatWidget } from "@/components/shared/ChatWidget";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,6 +12,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <ChatWidget />
     </div>
   );
 }

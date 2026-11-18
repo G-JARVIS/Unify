@@ -16,9 +16,10 @@ const govTendersRoutes = require('./routes/govTenders');
 const messagesRoutes = require('./routes/messages');
 const notificationsRoutes = require('./routes/notifications');
 const profileRoutes = require('./routes/profile');
+const assistantRoutes = require('./routes/assistant');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 
 // ── Global Middleware ──────────────────────────────────────────────────────────
 app.use(helmet());
@@ -50,6 +51,7 @@ app.use('/api/gov-tenders', govTendersRoutes);
 app.use('/api/conversations', messagesRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
