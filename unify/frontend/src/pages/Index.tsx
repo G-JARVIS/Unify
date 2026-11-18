@@ -1,107 +1,104 @@
-import { Search, FileText, Link2, Brain, Boxes } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Calendar, ExternalLink, FileText, Landmark, MapPin, IndianRupee } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { MetricCard } from "@/components/shared/MetricCard";
-import { OpportunityCard } from "@/components/shared/OpportunityCard";
-import { trendData, sectorData } from "@/data/dummy";
-import { useQuery } from "@tanstack/react-query";
-import { fetchOpportunities, fetchApplications, fetchCollaborations, fetchSupplyChain } from "@/lib/db";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { fetchGovContracts, fetchGovTenders, getGovTenderPortalUrl } from "@/lib/db";
+
+const TENDER_PORTAL = "https://eprocure.gov.in/eprocure/app?page=FrontEndAdvancedSearch&service=page";
+const AWARD_PORTAL = "https://eprocure.gov.in/eprocure/app?page=ResultOfTenders&service=page";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: fetchOpportunities });
-  const { data: applications = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
-  const { data: collaborations = [] } = useQuery({ queryKey: ["collaborations"], queryFn: fetchCollaborations });
-  const { data: supplyChain = [] } = useQuery({ queryKey: ["supply-chain"], queryFn: fetchSupplyChain });
-
-  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
-  const availableOpportunities = opportunities.filter((o) => !appliedSet.has(o.id) && !appliedSet.has(o.title));
-  const topOpportunities = availableOpportunities.filter((o) => (o.matchScore || 0) >= 80).slice(0, 6);
+  const tendersQuery = useQuery({ queryKey: ["gov-tenders"], queryFn: fetchGovTenders });
+  const contractsQuery = useQuery({ queryKey: ["gov-contracts"], queryFn: fetchGovContracts });
+  const activeTenders = (tendersQuery.data ?? []).filter((tender) => tender.status === "active");
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          Welcome back, <span className="gradient-text">{user?.name || "C-78 PVT LTD"}</span>
+          Welcome back, <span className="gradient-text">{user?.name || "UNIFY"}</span>
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Here are the latest opportunities and supply chain requests for your business.
-        </p>
+        <p className="text-sm text-muted-foreground mt-1">Tender notices and award records from the connected data service. Tender notices are not live-synced; verify them on eProcure.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="cursor-pointer" onClick={() => navigate("/opportunities")}>
-          <MetricCard title="Total Opportunities" value={availableOpportunities.length} description="Available for you" icon={Search} />
-        </div>
-        <div className="cursor-pointer" onClick={() => navigate("/ai-recommendations")}>
-          <MetricCard title="Recommended" value={topOpportunities.length} description="AI-matched for you" icon={Brain} />
-        </div>
-        <div className="cursor-pointer" onClick={() => navigate("/applications")}>
-          <MetricCard title="My Applications" value={applications.length} description="Submitted total" icon={FileText} />
-        </div>
-        <div className="cursor-pointer" onClick={() => navigate("/collaborations")}>
-          <MetricCard title="Collaborations" value={collaborations.length} description="Active opportunities" icon={Link2} />
-        </div>
-        <div className="cursor-pointer" onClick={() => navigate("/supply-chain")}>
-          <MetricCard title="Supply Chain" value={supplyChain.length} description="Open requirements" icon={Boxes} />
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button className="text-left" onClick={() => navigate("/government-tenders")}>
+          <MetricCard
+            title="Listed Government Tenders"
+            value={tendersQuery.isLoading ? "…" : tendersQuery.isError ? "Unavailable" : activeTenders.length}
+            description="Confirm live status on eProcure"
+            icon={Landmark}
+          />
+        </button>
+        <button className="text-left" onClick={() => navigate("/government-contracts")}>
+          <MetricCard
+            title="Government Award Records"
+            value={contractsQuery.isLoading ? "…" : contractsQuery.isError ? "Unavailable" : contractsQuery.data.length}
+            description="Published contract awards"
+            icon={FileText}
+          />
+        </button>
       </div>
 
-      <div>
+      <section>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Brain className="h-5 w-5 text-primary" />
-              AI Recommended Opportunities
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Based on your Capability–Opportunity Matching Score (COMS)</p>
+            <h2 className="text-lg font-semibold">Government Tender Notices</h2>
+            <p className="text-xs text-muted-foreground mt-1">Not live-synced. Verify current availability on the official portal.</p>
           </div>
-          <button onClick={() => navigate("/ai-recommendations")} className="text-xs font-medium text-primary hover:underline">View All →</button>
+          <a href={TENDER_PORTAL} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary hover:underline">
+            Official portal <ExternalLink className="inline h-3 w-3" />
+          </a>
         </div>
-        {topOpportunities.length === 0 ? (
-          <div className="text-center py-10 glass-card rounded-xl">
-            <p className="text-sm text-muted-foreground">All recommended opportunities have been applied for!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {topOpportunities.map((opp) => (
-              <OpportunityCard key={opp.id} opportunity={opp} />
-            ))}
-          </div>
+
+        {tendersQuery.isLoading && <p className="text-sm text-muted-foreground">Loading tender notices…</p>}
+        {tendersQuery.isError && <p role="alert" className="text-sm text-destructive">Could not load tenders: {tendersQuery.error.message}</p>}
+        {!tendersQuery.isLoading && !tendersQuery.isError && activeTenders.length === 0 && (
+          <p className="text-sm text-muted-foreground">The data service returned no active tender notices. Check the official portal for current listings.</p>
         )}
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-card rounded-xl p-5 cursor-pointer hover:border-primary/20 transition-colors" onClick={() => navigate("/company-growth")}>
-          <h3 className="text-sm font-semibold mb-4">Opportunity Trends</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-              <Line type="monotone" dataKey="opportunities" stroke="hsl(221, 83%, 53%)" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="matches" stroke="hsl(262, 83%, 58%)" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {activeTenders.slice(0, 6).map((tender) => (
+            <article key={tender.id} className="glass-card rounded-xl p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">{tender.sector}</p>
+              <h3 className="text-sm font-semibold mt-2">{tender.title}</h3>
+              <p className="text-xs text-muted-foreground mt-2">Reference: {tender.referenceNumber || tender.department}</p>
+              {!tender.verified && <p className="text-xs text-muted-foreground mt-1">Not live-verified</p>}
+              <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+                <Calendar className="h-3 w-3" /> Closes {new Date(tender.deadline).toLocaleString()}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                <MapPin className="h-3 w-3" /> {tender.location && !tender.location.toLowerCase().includes("see the official") ? tender.location : "Location in official notice"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                <IndianRupee className="h-3 w-3" /> {tender.budget && !tender.budget.toLowerCase().includes("not stated") ? tender.budget : "Value in official notice"}
+              </p>
+              <div className="mt-4 flex gap-3 text-xs">
+                <button onClick={() => navigate(`/government-tenders/${tender.id}`)} className="font-medium text-primary hover:underline">
+                  View details & prepare
+                </button>
+                <a href={getGovTenderPortalUrl(tender)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                  Official notice <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </article>
+          ))}
         </div>
+      </section>
 
-        <div className="glass-card rounded-xl p-5 cursor-pointer hover:border-primary/20 transition-colors" onClick={() => navigate("/company-growth")}>
-          <h3 className="text-sm font-semibold mb-4">Opportunities by Sector</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={sectorData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-              <Bar dataKey="opportunities" fill="hsl(221, 83%, 53%)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      {contractsQuery.isError && <p role="alert" className="text-sm text-destructive">Could not load award records: {contractsQuery.error.message}</p>}
+      {!contractsQuery.isLoading && !contractsQuery.isError && contractsQuery.data.length === 0 && (
+        <aside className="glass-card rounded-xl p-5">
+          <h2 className="text-sm font-semibold">No published award records in the connected data source</h2>
+          <p className="text-xs text-muted-foreground mt-2">Tender notices are not awarded contracts; we do not present them as awards.</p>
+          <a href={AWARD_PORTAL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-3 text-xs text-primary hover:underline">
+            Check the official Bid Awards portal <ExternalLink className="h-3 w-3" />
+          </a>
+        </aside>
+      )}
     </div>
   );
 };

@@ -3,7 +3,7 @@ const { listDocs, getDoc, createDoc, updateDoc, deleteDoc } = require('../lib/fi
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const COLLECTION = 'governmentContracts';
-const FIELDS = ['title', 'department', 'location', 'budget', 'deadline', 'sector', 'verified', 'description', 'fullDescription', 'applyLink', 'status'];
+const FIELDS = ['title', 'department', 'location', 'budget', 'deadline', 'sector', 'verified', 'description', 'fullDescription', 'applyLink', 'sourceName', 'sourceUrl', 'sourceReference', 'sourceCheckedAt', 'status'];
 
 const pick = (body) => Object.fromEntries(FIELDS.filter((f) => body[f] !== undefined).map((f) => [f, body[f]]));
 

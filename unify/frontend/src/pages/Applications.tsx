@@ -11,7 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Application } from "@/data/dummy";
+import type { Application } from "@/data/types";
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: "text-warning", bg: "bg-warning/10", label: "Pending" },
@@ -125,6 +125,12 @@ const Applications = () => {
                         <span className="line-clamp-2">{app.opportunityTitle}</span>
                         {app.company && (
                           <span className="block text-xs text-muted-foreground mt-0.5">{app.company}</span>
+                        )}
+                        {app.portalTenderId && (
+                          <span className="block text-xs text-muted-foreground mt-0.5">Tender ID: {app.portalTenderId}</span>
+                        )}
+                        {app.tenderReferenceNumber && (
+                          <span className="block text-xs text-muted-foreground mt-0.5">Reference: {app.tenderReferenceNumber}</span>
                         )}
                       </td>
                       <td className="p-4">

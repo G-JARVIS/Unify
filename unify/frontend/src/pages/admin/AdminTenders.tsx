@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 const empty: Omit<GovTender, "id"> = {
   title: "", department: "", location: "", budget: "", deadline: "",
-  sector: "", verified: false, description: "", fullDescription: "", applyLink: "", status: "active",
+  portalTenderId: "", referenceNumber: "", sector: "", verified: false, description: "", fullDescription: "", applyLink: "", status: "active",
 };
 
 const AdminTenders = () => {
@@ -19,7 +19,7 @@ const AdminTenders = () => {
   const [saving, setSaving] = useState(false);
 
   const openNew = () => { setForm(empty); setEditing(null); setShowForm(true); };
-  const openEdit = (t: GovTender) => { setForm({ title: t.title, department: t.department, location: t.location, budget: t.budget, deadline: t.deadline, sector: t.sector, verified: t.verified, description: t.description, fullDescription: t.fullDescription || "", applyLink: t.applyLink || "", status: t.status }); setEditing(t); setShowForm(true); };
+  const openEdit = (t: GovTender) => { setForm({ title: t.title, department: t.department, location: t.location, budget: t.budget, deadline: t.deadline, portalTenderId: t.portalTenderId || "", referenceNumber: t.referenceNumber || "", sector: t.sector, verified: t.verified, description: t.description, fullDescription: t.fullDescription || "", applyLink: t.applyLink || "", status: t.status }); setEditing(t); setShowForm(true); };
   const closeForm = () => { setShowForm(false); setEditing(null); };
 
   const handleSave = async () => {
@@ -62,7 +62,7 @@ const AdminTenders = () => {
             <button onClick={closeForm}><X className="h-4 w-4 text-muted-foreground hover:text-foreground" /></button>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            {([["title","Title *"],["department","Department *"],["location","Location"],["budget","Budget (e.g. ₹5Cr - ₹10Cr)"],["deadline","Deadline (YYYY-MM-DD)"],["sector","Sector *"],["applyLink","Apply Link (URL)"]] as [keyof typeof form, string][]).map(([k, label]) => (
+            {([["title","Title *"],["portalTenderId","Official eProcure Tender ID"],["referenceNumber","Tender Reference Number"],["department","Department *"],["location","Location"],["budget","Budget (e.g. ₹5Cr - ₹10Cr)"],["deadline","Deadline (YYYY-MM-DD)"],["sector","Sector *"],["applyLink","Official tender URL"]] as [keyof typeof form, string][]).map(([k, label]) => (
               <div key={k} className={k === "applyLink" ? "md:col-span-2" : ""}>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
                 <input value={form[k] as string} onChange={(e) => set(k, e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
@@ -116,6 +116,13 @@ const AdminTenders = () => {
                   <span className={`text-[11px] px-2 py-0.5 rounded-full ${t.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{t.status}</span>
                 </div>
                 <p className="font-semibold text-sm mt-1">{t.title}</p>
+                {(t.portalTenderId || t.referenceNumber) && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t.portalTenderId && `Tender ID: ${t.portalTenderId}`}
+                    {t.portalTenderId && t.referenceNumber && " · "}
+                    {t.referenceNumber && `Reference: ${t.referenceNumber}`}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">{t.department} · {t.location} · {t.budget} · Due {t.deadline}</p>
                 {t.applyLink && <p className="text-xs text-primary mt-1 truncate">Apply → {t.applyLink}</p>}
               </div>

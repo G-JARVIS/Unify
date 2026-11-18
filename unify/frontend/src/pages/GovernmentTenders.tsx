@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchGovTenders, fetchApplications } from "@/lib/db";
-import { Landmark, MapPin, Calendar, IndianRupee, ExternalLink, ShieldCheck, Search } from "lucide-react";
+import { fetchGovTenders, getGovTenderPortalUrl } from "@/lib/db";
+import { Landmark, MapPin, Calendar, ExternalLink, ShieldCheck, Search, IndianRupee } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -9,13 +9,9 @@ const GovernmentTenders = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
 
-  const { data: applications = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
-  const { data: tenders = [] } = useQuery({ queryKey: ["gov-tenders"], queryFn: fetchGovTenders });
+  const { data: tenders = [], isLoading, isError, error } = useQuery({ queryKey: ["gov-tenders"], queryFn: fetchGovTenders });
 
-  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
-  const activeTenders = tenders.filter(
-    (t) => t.status === "active" && !appliedSet.has(t.id) && !appliedSet.has(t.title)
-  );
+  const activeTenders = tenders.filter((t) => t.status === "active");
   const sectors = Array.from(new Set(activeTenders.map((t) => t.sector))).sort();
 
   const filtered = activeTenders.filter((t) => {
@@ -25,13 +21,7 @@ const GovernmentTenders = () => {
     return matchesSearch && matchesSector;
   });
 
-  const handleApply = (id: string, applyLink?: string) => {
-    if (applyLink) {
-      window.open(applyLink, "_blank", "noopener,noreferrer");
-    } else {
-      navigate(`/government-tenders/${id}`);
-    }
-  };
+  const officialSearchUrl = "https://eprocure.gov.in/eprocure/app?page=FrontEndAdvancedSearch&service=page";
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
@@ -40,7 +30,13 @@ const GovernmentTenders = () => {
           <Landmark className="h-6 w-6 text-primary" />
           Government Tenders
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">Discover government tenders from various ministries and departments.</p>
+        <p className="text-sm text-muted-foreground mt-1">Browse tender notices. Confirm live status and closing dates on the official portal before applying.</p>
+      </div>
+
+      <div role="note" className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        These listings are not live-synced. A Tender Reference Number is different from the portal Tender ID; search by reference number or title in{" "}
+        <a className="text-primary hover:underline" href={officialSearchUrl} target="_blank" rel="noreferrer">eProcure Advanced Search</a>.
+        The portal may require CAPTCHA verification.
       </div>
 
       <div className="space-y-3">
@@ -71,14 +67,20 @@ const GovernmentTenders = () => {
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">Showing {filtered.length} tender{filtered.length !== 1 ? "s" : ""}</p>
+      {isLoading && <p className="text-sm text-muted-foreground">Loading tender notices…</p>}
+      {isError && <p role="alert" className="text-sm text-destructive">Could not load tender notices: {error.message}</p>}
+      {!isLoading && !isError && <p className="text-sm text-muted-foreground">Showing {filtered.length} listed tender notice{filtered.length !== 1 ? "s" : ""}</p>}
 
-      {filtered.length === 0 ? (
+      {!isLoading && !isError && filtered.length === 0 && (
         <div className="text-center py-16 glass-card rounded-xl">
           <Landmark className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-          <p className="text-muted-foreground text-sm">No tenders found matching your criteria</p>
+          <p className="text-muted-foreground text-sm">No active tender notices match your criteria.</p>
+          <a className="mt-3 inline-flex text-xs text-primary hover:underline" href={officialSearchUrl} target="_blank" rel="noreferrer">
+            Search the official eProcure portal
+          </a>
         </div>
-      ) : (
+      )}
+      {!isLoading && !isError && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map((tender) => (
             <div key={tender.id} className="glass-card-hover rounded-xl p-5">
@@ -89,30 +91,39 @@ const GovernmentTenders = () => {
                     <ShieldCheck className="h-3.5 w-3.5" /> Verified
                   </span>
                 )}
+                {!tender.verified && (
+                  <span className="text-[11px] font-medium text-muted-foreground">Not live-verified</span>
+                )}
               </div>
               <h3 className="text-sm font-semibold mt-2">{tender.title}</h3>
+              {tender.referenceNumber && <p className="text-xs text-muted-foreground mt-1">Reference: {tender.referenceNumber}</p>}
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                 <Landmark className="h-3 w-3" /> {tender.department}
               </p>
               <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{tender.description}</p>
               <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{tender.location}</span>
-                <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{tender.deadline}</span>
+                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{tender.location && !tender.location.toLowerCase().includes("see the official") ? tender.location : "Location in notice"}</span>
+                <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Closes {new Date(tender.deadline).toLocaleDateString("en-IN")}</span>
               </div>
-              <p className="text-sm font-bold mt-3 flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" />{tender.budget.replace("₹", "")}</p>
+              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                <IndianRupee className="h-3 w-3" />
+                {tender.budget && !tender.budget.toLowerCase().includes("not stated") ? tender.budget : "Estimated value in notice"}
+              </p>
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={() => handleApply(tender.id, tender.applyLink)}
+                  onClick={() => navigate(`/government-tenders/${tender.id}`)}
                   className="flex-1 h-8 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90"
                 >
-                  Apply Now
+                  View details & prepare
                 </button>
-                <button
-                  onClick={() => navigate(`/government-tenders/${tender.id}`)}
-                  className="flex-1 h-8 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1"
+                <a
+                  href={getGovTenderPortalUrl(tender)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
                 >
-                  <ExternalLink className="h-3 w-3" /> View Details
-                </button>
+                  <ExternalLink className="h-3 w-3" /> Official notice
+                </a>
               </div>
             </div>
           ))}
