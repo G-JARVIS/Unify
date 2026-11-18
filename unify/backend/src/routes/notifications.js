@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { listDocs, updateDoc, commitWrites } = require('../lib/firestoreRest');
+const { listDocs, getDoc, updateDoc, commitWrites } = require('../lib/firestoreRest');
 const { requireAuth } = require('../middleware/auth');
 
 const COLLECTION = 'notifications';
@@ -18,7 +18,13 @@ router.get('/', requireAuth, async (req, res, next) => {
 // PATCH /api/notifications/:id/read
 router.patch('/:id/read', requireAuth, async (req, res, next) => {
   try {
-    await updateDoc(`${COLLECTION}/${req.params.id}`, { read: true }, req.user.idToken);
+    const path = `${COLLECTION}/${req.params.id}`;
+    const notification = await getDoc(path, req.user.idToken);
+    if (!notification) return res.status(404).json({ error: 'Notification not found' });
+    if (notification.recipientId && notification.recipientId !== req.user.uid) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
+    await updateDoc(path, { read: true }, req.user.idToken);
     res.json({ id: req.params.id, read: true });
   } catch (err) {
     next(err);
@@ -28,7 +34,8 @@ router.patch('/:id/read', requireAuth, async (req, res, next) => {
 // PATCH /api/notifications/read-all
 router.patch('/read-all', requireAuth, async (req, res, next) => {
   try {
-    const unread = await listDocs(COLLECTION, { where: { field: 'read', op: 'EQUAL', value: false } }, req.user.idToken);
+    const docs = await listDocs(COLLECTION, { where: { field: 'read', op: 'EQUAL', value: false } }, req.user.idToken);
+    const unread = docs.filter((n) => !n.recipientId || n.recipientId === req.user.uid);
     if (unread.length) {
       await commitWrites(unread.map((d) => ({ path: `${COLLECTION}/${d.id}`, data: { read: true } })), req.user.idToken);
     }
