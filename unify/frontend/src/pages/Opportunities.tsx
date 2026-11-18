@@ -1,46 +1,31 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchOpportunities, fetchApplications } from "@/lib/db";
-import { sectorData, trendData } from "@/data/dummy";
-import { OpportunityCard } from "@/components/shared/OpportunityCard";
-import { Search, TrendingUp } from "lucide-react";
+import { Search } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { OpportunityCard } from "@/components/shared/OpportunityCard";
+import { fetchOpportunities } from "@/lib/db";
 
 const Opportunities = () => {
   const [searchParams] = useSearchParams();
-  const initialQuery = searchParams.get("q") || "";
-  const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const [selectedType, setSelectedType] = useState<string>("all");
-
-  const { data: applications = [] } = useQuery({
-    queryKey: ["applications"],
-    queryFn: fetchApplications,
-  });
-
-  const { data: opportunities = [] } = useQuery({
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+  const [selectedType, setSelectedType] = useState("all");
+  const { data: opportunities = [], isLoading, isError, error } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
   });
 
-  const appliedSet = new Set(applications.map((a) => a.opportunityId || a.opportunityTitle));
-  const availableOpportunities = opportunities.filter(
-    (o) => !appliedSet.has(o.id) && !appliedSet.has(o.title)
-  );
-
-  const filtered = availableOpportunities.filter((o) => {
-    const matchesSearch = o.title.toLowerCase().includes(searchQuery.toLowerCase()) || o.sector.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = selectedType === "all" || o.type === selectedType;
-    return matchesSearch && matchesType;
+  const filtered = opportunities.filter((opportunity) => {
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = opportunity.title.toLowerCase().includes(query) || opportunity.sector.toLowerCase().includes(query);
+    return matchesSearch && (selectedType === "all" || opportunity.type === selectedType);
   });
-
   const types = ["all", "tender", "contract", "outsourcing", "collaboration"];
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Opportunities</h1>
-        <p className="text-sm text-muted-foreground mt-1">Browse and apply for business opportunities across all sectors.</p>
+        <p className="text-sm text-muted-foreground mt-1">Browse opportunities returned by the connected data service.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -50,7 +35,7 @@ const Opportunities = () => {
             type="text"
             placeholder="Search opportunities..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
             className="w-full h-10 pl-10 pr-4 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -59,9 +44,7 @@ const Opportunities = () => {
             <button
               key={type}
               onClick={() => setSelectedType(type)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${
-                selectedType === type ? "gradient-primary text-primary-foreground" : "bg-card border border-border hover:bg-muted"
-              }`}
+              className={`px-3 py-2 rounded-lg text-xs font-medium capitalize ${selectedType === type ? "gradient-primary text-primary-foreground" : "bg-card border border-border hover:bg-muted"}`}
             >
               {type}
             </button>
@@ -69,43 +52,19 @@ const Opportunities = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="glass-card rounded-xl p-5">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" />Sector Growth (%)</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={sectorData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-              <Bar dataKey="growth" fill="hsl(221, 83%, 53%)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="glass-card rounded-xl p-5">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" />Demand Trends</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-              <Line type="monotone" dataKey="opportunities" stroke="hsl(221, 83%, 53%)" strokeWidth={2} name="Opportunities" />
-              <Line type="monotone" dataKey="matches" stroke="hsl(142, 71%, 45%)" strokeWidth={2} name="AI Matches" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((opp) => (
-          <OpportunityCard key={opp.id} opportunity={opp} />
-        ))}
-      </div>
-      {filtered.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground">
-          <p className="text-sm">No opportunities found matching your criteria.</p>
-        </div>
+      {isLoading && <p className="text-sm text-muted-foreground">Loading opportunities…</p>}
+      {isError && <p role="alert" className="text-sm text-destructive">Could not load opportunities: {error.message}</p>}
+      {!isLoading && !isError && (
+        <>
+          <p className="text-xs text-muted-foreground">Showing {filtered.length} result{filtered.length === 1 ? "" : "s"}.</p>
+          {filtered.length === 0 ? (
+            <div className="glass-card rounded-xl p-8 text-center text-sm text-muted-foreground">No opportunities match your search.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filtered.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} />)}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

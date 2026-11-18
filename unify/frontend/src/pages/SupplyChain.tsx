@@ -4,6 +4,8 @@ import { MapPin, Calendar, Building2, Plus, ExternalLink, X, Package } from "luc
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { auth } from "@/lib/firebase";
 
 const emptyForm = { title: "", sector: "", budget: "", quantity: "", deadline: "", location: "", description: "" };
 
@@ -12,24 +14,24 @@ const SupplyChain = () => {
   const [form, setForm] = useState(emptyForm);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const { data: applications = [] } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,
   });
 
-  const { data: requests = [] } = useQuery({
+  const { data: requests = [], isLoading: requestsLoading, isError: requestsError, error: requestsErrorDetails } = useQuery({
     queryKey: ["supply-chain"],
     queryFn: fetchSupplyChain,
   });
 
-  const appliedSet = new Set(
-    applications
-      .filter((a) => a.status !== "withdrawn")
-      .flatMap((a) => [a.opportunityId, a.opportunityTitle].filter(Boolean))
+  const appliedIds = new Set(
+    applications.filter((a) => a.status !== "withdrawn").map((a) => a.opportunityId).filter(Boolean)
   );
+  const currentUserId = auth.currentUser?.uid;
   const availableRequests = requests.filter(
-    (r) => !appliedSet.has(r.id) && !appliedSet.has(r.title)
+    (request) => request.createdBy !== currentUserId && !appliedIds.has(request.id)
   );
 
   const handleSubmitProposal = async (req: typeof requests[0]) => {
@@ -60,24 +62,32 @@ const SupplyChain = () => {
   };
 
   const handlePostRequirement = async () => {
-    if (!form.title || !form.sector || !form.budget) {
-      toast.error("Please fill in the required fields.");
+    if (!user?.company || !form.title.trim() || !form.sector.trim() || !form.budget.trim()) {
+      toast.error("Complete the required fields", {
+        description: "Requirement title, industry sector, budget, and a company profile are required.",
+      });
       return;
     }
-    await createSupplyChainRequest({
-      companyName: "C-78 PVT LTD",
-      title: form.title,
-      sector: form.sector,
-      quantity: form.quantity,
-      budget: form.budget,
-      location: form.location,
-      deadline: form.deadline,
-      description: form.description,
-    });
-    queryClient.invalidateQueries({ queryKey: ["supply-chain"] });
-    toast.success("Requirement posted!", { description: "Your supply chain requirement is now visible to MSMEs." });
-    setShowForm(false);
-    setForm(emptyForm);
+    try {
+      await createSupplyChainRequest({
+        companyName: user.company,
+        title: form.title.trim(),
+        sector: form.sector.trim(),
+        quantity: form.quantity.trim(),
+        budget: form.budget.trim(),
+        location: form.location.trim(),
+        deadline: form.deadline,
+        description: form.description.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["supply-chain"] });
+      toast.success("Requirement posted!", { description: "Your supply chain requirement is now visible to other companies." });
+      setShowForm(false);
+      setForm(emptyForm);
+    } catch (err) {
+      toast.error("Could not post requirement", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    }
   };
 
   return (
@@ -85,7 +95,7 @@ const SupplyChain = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Private Supply Chain Marketplace</h1>
-          <p className="text-sm text-muted-foreground mt-1">Browse procurement needs and submit proposals.</p>
+          <p className="text-sm text-muted-foreground mt-1">Browse other companies’ procurement needs and submit proposals.</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -136,12 +146,14 @@ const SupplyChain = () => {
         </div>
       )}
 
-      {availableRequests.length === 0 ? (
+      {requestsLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading requirements from other companies…</p>}
+      {requestsError && <p role="alert" className="py-8 text-center text-sm text-destructive">Could not load supply-chain requirements: {requestsErrorDetails.message}</p>}
+      {!requestsLoading && !requestsError && availableRequests.length === 0 ? (
         <div className="text-center py-16 glass-card rounded-xl">
           <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-          <p className="text-muted-foreground text-sm">No supply chain requirements available at the moment.</p>
+          <p className="text-muted-foreground text-sm">No requirements from other companies are available right now.</p>
         </div>
-      ) : (
+      ) : !requestsLoading && !requestsError ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {availableRequests.map((req) => (
             <div key={req.id} className="glass-card-hover rounded-xl p-5">
@@ -166,7 +178,7 @@ const SupplyChain = () => {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

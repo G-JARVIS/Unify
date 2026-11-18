@@ -1,18 +1,12 @@
-import { MapPin, Calendar, Bookmark, BookmarkCheck } from "lucide-react";
+import { MapPin, Calendar } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Opportunity } from "@/data/dummy";
+import type { Opportunity } from "@/data/types";
 import { MatchScoreBar } from "./MatchScoreBar";
-import { useState } from "react";
-import { toast } from "sonner";
 
-interface OpportunityCardProps {
-  opportunity: Opportunity;
-  onToggleSave?: () => void;
-}
+interface OpportunityCardProps { opportunity: Opportunity }
 
-export function OpportunityCard({ opportunity, onToggleSave }: OpportunityCardProps) {
+export function OpportunityCard({ opportunity }: OpportunityCardProps) {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState(opportunity.saved ?? false);
 
   const typeColors: Record<string, string> = {
     tender: "bg-primary/10 text-primary",
@@ -21,27 +15,12 @@ export function OpportunityCard({ opportunity, onToggleSave }: OpportunityCardPr
     collaboration: "bg-success/10 text-success",
   };
 
-  const handleSave = () => {
-    setSaved(!saved);
-    onToggleSave?.();
-    toast(saved ? "Removed from saved" : "Opportunity saved!");
-  };
-
-  const handleApply = () => {
-    toast.success("Application submitted!", {
-      description: `You applied for "${opportunity.title}". Track it in My Applications.`,
-    });
-  };
-
   return (
     <div className="glass-card-hover rounded-xl p-5 flex flex-col">
       <div className="flex items-start justify-between mb-3">
         <span className={`text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${typeColors[opportunity.type]}`}>
           {opportunity.type}
         </span>
-        <button onClick={handleSave} className="p-1 hover:bg-muted rounded-md transition-colors">
-          {saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4 text-muted-foreground" />}
-        </button>
       </div>
 
       <h3 className="font-semibold text-sm leading-snug mb-1">{opportunity.title}</h3>
@@ -57,16 +36,24 @@ export function OpportunityCard({ opportunity, onToggleSave }: OpportunityCardPr
         <span className="text-muted-foreground">{opportunity.sector}</span>
       </div>
 
-      <MatchScoreBar score={opportunity.matchScore} />
+      {opportunity.matchScore > 0 && <MatchScoreBar score={opportunity.matchScore} />}
 
-      <div className="flex gap-2 mt-4">
-        <button onClick={handleApply} className="flex-1 h-9 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity">
-          Apply
-        </button>
-        <button onClick={() => navigate(`/opportunities/${opportunity.id}`)} className="flex-1 h-9 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors">
-          View Details
-        </button>
-      </div>
+      <button
+        onClick={() => {
+          if (opportunity.type === "tender" && opportunity.sourceId) {
+            navigate(`/government-tenders/${opportunity.sourceId}`);
+          } else if (opportunity.type === "collaboration" && opportunity.sourceId) {
+            navigate(`/collaborations/${opportunity.sourceId}`);
+          } else if (opportunity.type === "outsourcing" && opportunity.sourceId) {
+            navigate(`/supply-chain/${opportunity.sourceId}`);
+          } else {
+            navigate(`/opportunities/${opportunity.id}`);
+          }
+        }}
+        className="mt-4 h-9 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
+      >
+        {opportunity.type === "tender" ? "View tender & prepare" : "View Details"}
+      </button>
     </div>
   );
 }
